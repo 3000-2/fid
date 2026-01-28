@@ -15,12 +15,15 @@
 - **설정 모달** - `/` 키로 설정 변경
 - **키보드 네비게이션** - Vim 스타일 (j/k) 및 방향키 지원
 
-## 요구사항
-
-- [Bun](https://bun.sh) 런타임
-- [opentui](https://github.com/anthropics/opentui) (로컬 의존성)
-
 ## 설치
+
+### Homebrew (권장)
+
+```bash
+brew install 3000-2/tap/fid
+```
+
+### 소스에서 설치
 
 ```bash
 git clone https://github.com/3000-2/fid.git
@@ -28,13 +31,17 @@ cd fid
 bun install
 ```
 
+[Bun](https://bun.sh) 런타임 필요.
+
 ## 사용법
 
 ```bash
-# 현재 디렉토리에서 실행
-bun run start
+# Homebrew
+fid
+fid /path/to/git/repo
 
-# 특정 디렉토리에서 실행
+# 소스에서 실행
+bun run start
 bun run start /path/to/git/repo
 ```
 

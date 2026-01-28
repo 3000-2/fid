@@ -15,12 +15,15 @@ A terminal UI for viewing git diffs with style.
 - **Settings Modal** - Change settings on the fly with `/` key
 - **Keyboard Navigation** - Vim-style navigation (j/k) and arrow keys
 
-## Requirements
-
-- [Bun](https://bun.sh) runtime
-- [opentui](https://github.com/anthropics/opentui) (local dependency)
-
 ## Installation
+
+### Homebrew (Recommended)
+
+```bash
+brew install 3000-2/tap/fid
+```
+
+### From Source
 
 ```bash
 git clone https://github.com/3000-2/fid.git
@@ -28,13 +31,17 @@ cd fid
 bun install
 ```
 
+Requires [Bun](https://bun.sh) runtime.
+
 ## Usage
 
 ```bash
-# Run in current directory
-bun run start
+# Homebrew
+fid
+fid /path/to/git/repo
 
-# Run in specific directory
+# From source
+bun run start
 bun run start /path/to/git/repo
 ```
 
