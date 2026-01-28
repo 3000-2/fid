@@ -8,7 +8,7 @@
     "dev": "bun --watch run src/index.ts"
   },
   "dependencies": {
-    "@opentui/core": "file:../opentui/packages/core"
+    "@opentui/core": "github:anomalyco/opentui#packages/core"
   },
   "devDependencies": {
     "bun-types": "latest",
