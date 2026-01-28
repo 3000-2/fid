@@ -64,6 +64,7 @@ class FileItem extends BoxRenderable {
       content: fileName,
       fg: this.getTextColor(),
       flexGrow: 1,
+      wrapMode: "none",
     })
 
     this.add(this.statusText)
