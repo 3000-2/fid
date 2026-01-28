@@ -101,13 +101,18 @@ async function main() {
       return
     }
 
-    if (layout.isSettingsModalOpen()) {
+    if (layout.isSettingsModalOpen() || layout.isSearchModalOpen()) {
       layout.handleKey(key)
       return
     }
 
-    if (key.name === "/" && !key.ctrl && !key.meta) {
+    if (key.name === "?" || (key.name === "/" && key.shift)) {
       layout.toggleSettingsModal()
+      return
+    }
+
+    if (key.name === "/" && !key.ctrl && !key.meta) {
+      layout.toggleSearch()
       return
     }
 

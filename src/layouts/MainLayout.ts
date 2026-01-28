@@ -9,6 +9,7 @@ import {
 import { SidebarRenderable } from "../components/Sidebar"
 import { DiffViewerRenderable } from "../components/DiffViewer"
 import { SettingsModal } from "../components/SettingsModal"
+import { SearchModal } from "../components/SearchModal"
 import type { GitFile, GitService } from "../services/git"
 import { type Theme, themes } from "../themes"
 import { type Config } from "../services/config"
@@ -27,6 +28,7 @@ interface AppState {
   sidebarFocused: boolean
   currentBranch: string
   settingsModalOpen: boolean
+  searchModalOpen: boolean
 }
 
 export class MainLayout extends BoxRenderable {
@@ -39,6 +41,7 @@ export class MainLayout extends BoxRenderable {
   private container: BoxRenderable
   private welcomeText: TextRenderable
   private settingsModal: SettingsModal | null = null
+  private searchModal: SearchModal | null = null
 
   private gitService: GitService
   private sidebarWidth: number
@@ -72,6 +75,7 @@ export class MainLayout extends BoxRenderable {
       sidebarFocused: true,
       currentBranch: "",
       settingsModalOpen: false,
+      searchModalOpen: false,
     }
 
     this.container = new BoxRenderable(ctx, {
@@ -192,6 +196,10 @@ export class MainLayout extends BoxRenderable {
   handleKey(key: ParsedKey): boolean {
     if (this.state.settingsModalOpen && this.settingsModal) {
       return this.settingsModal.handleKey(key)
+    }
+
+    if (this.state.searchModalOpen && this.searchModal) {
+      return this.searchModal.handleKey(key)
     }
 
     if (this.sidebar && this.state.sidebarFocused) {
@@ -318,7 +326,7 @@ export class MainLayout extends BoxRenderable {
       parts.push(this.state.selectedFile.path)
     }
 
-    parts.push("[j/k] navigate  [Enter] select  [/] settings")
+    parts.push("[j/k] navigate  [Enter] select  [/] search  [?] settings")
 
     this.statusText.content = parts.join("  |  ")
   }
@@ -330,6 +338,37 @@ export class MainLayout extends BoxRenderable {
 
   isSettingsModalOpen(): boolean {
     return this.state.settingsModalOpen
+  }
+
+  toggleSearch(): void {
+    if (this.state.searchModalOpen) {
+      this.closeSearchModal()
+    } else {
+      this.openSearchModal()
+    }
+  }
+
+  private openSearchModal(): void {
+    this.state.searchModalOpen = true
+    this.searchModal = new SearchModal(this.renderCtx, {
+      theme: this.theme,
+      files: this.state.files,
+      onSelect: (file) => this.handleFileSelect(file),
+      onClose: () => this.closeSearchModal(),
+    })
+    this.add(this.searchModal)
+  }
+
+  private closeSearchModal(): void {
+    if (this.searchModal) {
+      this.remove(this.searchModal.id)
+      this.searchModal = null
+    }
+    this.state.searchModalOpen = false
+  }
+
+  isSearchModalOpen(): boolean {
+    return this.state.searchModalOpen
   }
 
   destroy(): void {
