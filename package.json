@@ -1,0 +1,17 @@
+{
+  "name": "fid",
+  "version": "0.1.0",
+  "description": "Terminal UI for Git with embedded terminal and diff viewer",
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun --watch run src/index.ts"
+  },
+  "dependencies": {
+    "@opentui/core": "file:../opentui/packages/core"
+  },
+  "devDependencies": {
+    "bun-types": "latest",
+    "typescript": "^5.0.0"
+  }
+}
