@@ -169,6 +169,19 @@ export class GitChangesRenderable extends BoxRenderable {
     this.fileItems = []
     this.sectionElements = []
 
+    if (this.files.length === 0) {
+      const emptyMessage = new TextRenderable(this.renderCtx, {
+        id: "empty-message",
+        content: "No changes",
+        fg: this.theme.colors.textMuted,
+        paddingLeft: 1,
+        paddingTop: 1,
+      })
+      this.sectionElements.push(emptyMessage)
+      this.contentBox.add(emptyMessage)
+      return
+    }
+
     const stagedFiles = this.files.filter(f => f.staged)
     const unstagedFiles = this.files.filter(f => !f.staged)
 
@@ -351,13 +364,19 @@ export class GitChangesRenderable extends BoxRenderable {
   setSelectedPath(path: string | undefined): void {
     const index = path ? this.files.findIndex(f => f.path === path) : -1
     const prevSelected = this.selectedIndex
+    const prevFocused = this.focusedIndex
     this.selectedIndex = index
+    this.focusedIndex = index
 
     if (prevSelected >= 0 && this.fileItems[prevSelected]) {
       this.fileItems[prevSelected].setSelected(false)
     }
+    if (prevFocused >= 0 && this.fileItems[prevFocused]) {
+      this.fileItems[prevFocused].setFocused(false)
+    }
     if (index >= 0 && this.fileItems[index]) {
       this.fileItems[index].setSelected(true)
+      this.fileItems[index].setFocused(true)
     }
   }
 }

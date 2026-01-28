@@ -90,10 +90,10 @@ export class MainLayout extends BoxRenderable {
 
     this.welcomeText = new TextRenderable(ctx, {
       id: "welcome-text",
-      content: "  Select a file to view diff (use j/k to navigate, Enter to select)",
+      content: "Select a file to view diff",
       fg: theme.colors.textMuted,
-      paddingTop: 1,
-      paddingLeft: 1,
+      paddingTop: 2,
+      paddingLeft: 2,
     })
     this.mainContent.add(this.welcomeText)
 
@@ -174,6 +174,7 @@ export class MainLayout extends BoxRenderable {
 
   private async handleFileSelect(file: GitFile): Promise<void> {
     this.state.selectedFile = file
+    this.sidebar.setSelectedPath(file.path)
     this.welcomeText.visible = false
     this.diffViewer.visible = true
 
@@ -285,6 +286,14 @@ export class MainLayout extends BoxRenderable {
       this.state.files = files
       this.state.currentBranch = branch
       this.sidebar.updateFiles(files)
+
+      if (files.length > 0 && !this.state.selectedFile) {
+        const staged = files.filter(f => f.staged)
+        const unstaged = files.filter(f => !f.staged)
+        const sortedFiles = [...staged, ...unstaged]
+        this.handleFileSelect(sortedFiles[0])
+      }
+
       this.updateStatusBar()
     } finally {
       this.isRefreshing = false
