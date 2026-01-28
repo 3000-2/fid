@@ -1,0 +1,329 @@
+import {
+  BoxRenderable,
+  TextRenderable,
+  type RenderContext,
+  type ParsedKey,
+} from "@opentui/core"
+import type { Theme } from "../themes"
+import type { GitFile } from "../services/git"
+
+type CommandAction = "settings" | "help" | "refresh" | "file"
+
+interface Command {
+  id: string
+  label: string
+  description: string
+  action: CommandAction
+  file?: GitFile
+}
+
+interface CommandPaletteOptions {
+  theme: Theme
+  files: GitFile[]
+  onCommand: (action: CommandAction, file?: GitFile) => void
+  onClose: () => void
+}
+
+export class CommandPalette extends BoxRenderable {
+  private renderCtx: RenderContext
+  private theme: Theme
+  private files: GitFile[]
+  private onCommand: (action: CommandAction, file?: GitFile) => void
+  private onClose: () => void
+
+  private query: string = ""
+  private cursorIndex: number = 0
+  private filteredItems: Command[] = []
+
+  private modalBox!: BoxRenderable
+  private inputText!: TextRenderable
+  private resultsBox!: BoxRenderable
+  private resultIds: string[] = []
+
+  private baseCommands: Command[] = [
+    { id: "settings", label: "Settings", description: "Change theme and preferences", action: "settings" },
+    { id: "help", label: "Help", description: "Show keyboard shortcuts", action: "help" },
+    { id: "refresh", label: "Refresh", description: "Reload changed files", action: "refresh" },
+  ]
+
+  constructor(ctx: RenderContext, options: CommandPaletteOptions) {
+    super(ctx, {
+      id: "command-palette-overlay",
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      flexDirection: "column",
+      justifyContent: "center",
+      alignItems: "center",
+      backgroundColor: "#00000080",
+    })
+
+    this.renderCtx = ctx
+    this.theme = options.theme
+    this.files = options.files
+    this.onCommand = options.onCommand
+    this.onClose = options.onClose
+
+    this.filterItems()
+    this.buildUI()
+    this.renderResults()
+  }
+
+  private buildUI(): void {
+    const t = this.theme.colors
+
+    this.modalBox = new BoxRenderable(this.renderCtx, {
+      id: "command-palette",
+      flexDirection: "column",
+      width: 55,
+      maxHeight: 20,
+      border: true,
+      borderStyle: "rounded",
+      borderColor: t.accent,
+      backgroundColor: t.sidebarBg,
+      padding: 1,
+    })
+
+    const inputBox = new BoxRenderable(this.renderCtx, {
+      id: "palette-input-box",
+      flexDirection: "row",
+      height: 1,
+      marginBottom: 1,
+    })
+
+    const prompt = new TextRenderable(this.renderCtx, {
+      id: "palette-prompt",
+      content: "> ",
+      fg: t.accent,
+    })
+
+    this.inputText = new TextRenderable(this.renderCtx, {
+      id: "palette-input",
+      content: "▏",
+      fg: t.text,
+      flexGrow: 1,
+    })
+
+    inputBox.add(prompt)
+    inputBox.add(this.inputText)
+    this.modalBox.add(inputBox)
+
+    const divider = new TextRenderable(this.renderCtx, {
+      id: "palette-divider",
+      content: "─".repeat(51),
+      fg: t.border,
+      marginBottom: 1,
+    })
+    this.modalBox.add(divider)
+
+    this.resultsBox = new BoxRenderable(this.renderCtx, {
+      id: "palette-results",
+      flexDirection: "column",
+      flexGrow: 1,
+    })
+    this.modalBox.add(this.resultsBox)
+
+    const hint = new TextRenderable(this.renderCtx, {
+      id: "palette-hint",
+      content: "[ESC] Close  [↑↓] Move  [Enter] Select",
+      fg: t.textMuted,
+      marginTop: 1,
+    })
+    this.modalBox.add(hint)
+
+    this.add(this.modalBox)
+  }
+
+  private clearResults(): void {
+    for (const id of this.resultIds) {
+      this.resultsBox.remove(id)
+    }
+    this.resultIds = []
+  }
+
+  private filterItems(): void {
+    const lowerQuery = this.query.toLowerCase().trim()
+
+    if (lowerQuery === "") {
+      // Show commands first, then files
+      this.filteredItems = [
+        ...this.baseCommands,
+        ...this.files.slice(0, 7).map((file) => ({
+          id: `file-${file.path}`,
+          label: file.path.split("/").pop() || file.path,
+          description: file.path,
+          action: "file" as CommandAction,
+          file,
+        })),
+      ]
+    } else {
+      // Filter commands
+      const matchedCommands = this.baseCommands.filter(
+        (cmd) =>
+          cmd.label.toLowerCase().includes(lowerQuery) ||
+          cmd.description.toLowerCase().includes(lowerQuery)
+      )
+
+      // Filter files
+      const matchedFiles = this.files
+        .filter((file) => {
+          const fileName = file.path.split("/").pop() || file.path
+          return (
+            fileName.toLowerCase().includes(lowerQuery) ||
+            file.path.toLowerCase().includes(lowerQuery)
+          )
+        })
+        .slice(0, 10)
+        .map((file) => ({
+          id: `file-${file.path}`,
+          label: file.path.split("/").pop() || file.path,
+          description: file.path,
+          action: "file" as CommandAction,
+          file,
+        }))
+
+      this.filteredItems = [...matchedCommands, ...matchedFiles]
+    }
+
+    if (this.cursorIndex >= this.filteredItems.length) {
+      this.cursorIndex = Math.max(0, this.filteredItems.length - 1)
+    }
+  }
+
+  private renderResults(): void {
+    this.clearResults()
+    const t = this.theme.colors
+
+    this.inputText.content = this.query + "▏"
+
+    if (this.filteredItems.length === 0) {
+      const noResults = new TextRenderable(this.renderCtx, {
+        id: "no-results",
+        content: "No matching results",
+        fg: t.textMuted,
+      })
+      this.resultsBox.add(noResults)
+      this.resultIds.push("no-results")
+      return
+    }
+
+    const maxResults = 10
+    const displayItems = this.filteredItems.slice(0, maxResults)
+
+    displayItems.forEach((item, index) => {
+      const isCursor = index === this.cursorIndex
+      const isCommand = item.action !== "file"
+
+      const rowId = `palette-result-${index}`
+      const row = new BoxRenderable(this.renderCtx, {
+        id: rowId,
+        flexDirection: "row",
+        height: 1,
+        backgroundColor: isCursor ? t.selectionBg : "transparent",
+        paddingLeft: 1,
+      })
+
+      if (isCommand) {
+        const icon = new TextRenderable(this.renderCtx, {
+          id: `palette-icon-${index}`,
+          content: item.action === "settings" ? "⚙ " : item.action === "help" ? "? " : "↻ ",
+          fg: t.accent,
+        })
+        row.add(icon)
+      } else {
+        const file = item.file!
+        const status = new TextRenderable(this.renderCtx, {
+          id: `palette-status-${index}`,
+          content: file.status + " ",
+          fg: file.staged ? t.success : t.warning,
+        })
+        row.add(status)
+      }
+
+      const label = new TextRenderable(this.renderCtx, {
+        id: `palette-label-${index}`,
+        content: item.label,
+        fg: isCursor ? t.accent : t.text,
+        wrapMode: "none",
+      })
+      row.add(label)
+
+      if (isCommand) {
+        const desc = new TextRenderable(this.renderCtx, {
+          id: `palette-desc-${index}`,
+          content: "  " + item.description,
+          fg: t.textMuted,
+          wrapMode: "none",
+        })
+        row.add(desc)
+      }
+
+      this.resultsBox.add(row)
+      this.resultIds.push(rowId)
+    })
+
+    if (this.filteredItems.length > maxResults) {
+      const moreId = "palette-more"
+      const more = new TextRenderable(this.renderCtx, {
+        id: moreId,
+        content: `  ... and ${this.filteredItems.length - maxResults} more`,
+        fg: t.textMuted,
+      })
+      this.resultsBox.add(more)
+      this.resultIds.push(moreId)
+    }
+  }
+
+  handleKey(key: ParsedKey): boolean {
+    if (key.name === "escape") {
+      this.onClose()
+      return true
+    }
+
+    if (key.name === "return") {
+      if (this.filteredItems.length > 0 && this.cursorIndex < this.filteredItems.length) {
+        const item = this.filteredItems[this.cursorIndex]
+        this.onCommand(item.action, item.file)
+      }
+      return true
+    }
+
+    if (key.name === "up") {
+      if (this.cursorIndex > 0) {
+        this.cursorIndex--
+        this.renderResults()
+      }
+      return true
+    }
+
+    if (key.name === "down") {
+      if (this.cursorIndex < this.filteredItems.length - 1 && this.cursorIndex < 9) {
+        this.cursorIndex++
+        this.renderResults()
+      }
+      return true
+    }
+
+    if (key.name === "backspace") {
+      if (this.query.length > 0) {
+        this.query = this.query.slice(0, -1)
+        this.cursorIndex = 0
+        this.filterItems()
+        this.renderResults()
+      }
+      return true
+    }
+
+    if (key.sequence && key.sequence.length === 1 && key.sequence >= " ") {
+      this.query += key.sequence
+      this.cursorIndex = 0
+      this.filterItems()
+      this.renderResults()
+      return true
+    }
+
+    return true
+  }
+}

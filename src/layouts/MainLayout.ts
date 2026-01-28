@@ -9,7 +9,8 @@ import {
 import { SidebarRenderable } from "../components/Sidebar"
 import { DiffViewerRenderable } from "../components/DiffViewer"
 import { SettingsModal } from "../components/SettingsModal"
-import { SearchModal } from "../components/SearchModal"
+import { CommandPalette } from "../components/CommandPalette"
+import { HelpModal } from "../components/HelpModal"
 import type { GitFile, GitService } from "../services/git"
 import { type Theme, themes } from "../themes"
 import { type Config } from "../services/config"
@@ -28,7 +29,8 @@ interface AppState {
   sidebarFocused: boolean
   currentBranch: string
   settingsModalOpen: boolean
-  searchModalOpen: boolean
+  commandPaletteOpen: boolean
+  helpModalOpen: boolean
 }
 
 export class MainLayout extends BoxRenderable {
@@ -41,7 +43,8 @@ export class MainLayout extends BoxRenderable {
   private container: BoxRenderable
   private welcomeText: TextRenderable
   private settingsModal: SettingsModal | null = null
-  private searchModal: SearchModal | null = null
+  private commandPalette: CommandPalette | null = null
+  private helpModal: HelpModal | null = null
 
   private gitService: GitService
   private sidebarWidth: number
@@ -75,7 +78,8 @@ export class MainLayout extends BoxRenderable {
       sidebarFocused: true,
       currentBranch: "",
       settingsModalOpen: false,
-      searchModalOpen: false,
+      commandPaletteOpen: false,
+      helpModalOpen: false,
     }
 
     this.container = new BoxRenderable(ctx, {
@@ -198,8 +202,12 @@ export class MainLayout extends BoxRenderable {
       return this.settingsModal.handleKey(key)
     }
 
-    if (this.state.searchModalOpen && this.searchModal) {
-      return this.searchModal.handleKey(key)
+    if (this.state.commandPaletteOpen && this.commandPalette) {
+      return this.commandPalette.handleKey(key)
+    }
+
+    if (this.state.helpModalOpen && this.helpModal) {
+      return this.helpModal.handleKey(key)
     }
 
     if (this.sidebar && this.state.sidebarFocused) {
@@ -326,7 +334,7 @@ export class MainLayout extends BoxRenderable {
       parts.push(this.state.selectedFile.path)
     }
 
-    parts.push("[j/k] navigate  [Enter] select  [/] search  [?] settings")
+    parts.push("[j/k] navigate  [Enter] select  [/] commands  [?] help")
 
     this.statusText.content = parts.join("  |  ")
   }
@@ -340,35 +348,85 @@ export class MainLayout extends BoxRenderable {
     return this.state.settingsModalOpen
   }
 
-  toggleSearch(): void {
-    if (this.state.searchModalOpen) {
-      this.closeSearchModal()
+  toggleCommandPalette(): void {
+    if (this.state.commandPaletteOpen) {
+      this.closeCommandPalette()
     } else {
-      this.openSearchModal()
+      this.openCommandPalette()
     }
   }
 
-  private openSearchModal(): void {
-    this.state.searchModalOpen = true
-    this.searchModal = new SearchModal(this.renderCtx, {
+  private openCommandPalette(): void {
+    this.state.commandPaletteOpen = true
+    this.commandPalette = new CommandPalette(this.renderCtx, {
       theme: this.theme,
       files: this.state.files,
-      onSelect: (file) => this.handleFileSelect(file),
-      onClose: () => this.closeSearchModal(),
+      onCommand: (action, file) => this.handleCommand(action, file),
+      onClose: () => this.closeCommandPalette(),
     })
-    this.add(this.searchModal)
+    this.add(this.commandPalette)
   }
 
-  private closeSearchModal(): void {
-    if (this.searchModal) {
-      this.remove(this.searchModal.id)
-      this.searchModal = null
+  private closeCommandPalette(): void {
+    if (this.commandPalette) {
+      this.remove(this.commandPalette.id)
+      this.commandPalette = null
     }
-    this.state.searchModalOpen = false
+    this.state.commandPaletteOpen = false
   }
 
-  isSearchModalOpen(): boolean {
-    return this.state.searchModalOpen
+  private handleCommand(action: string, file?: GitFile): void {
+    this.closeCommandPalette()
+
+    switch (action) {
+      case "settings":
+        this.openSettingsModal()
+        break
+      case "help":
+        this.openHelpModal()
+        break
+      case "refresh":
+        this.refreshFiles()
+        break
+      case "file":
+        if (file) {
+          this.handleFileSelect(file)
+        }
+        break
+    }
+  }
+
+  toggleHelpModal(): void {
+    if (this.state.helpModalOpen) {
+      this.closeHelpModal()
+    } else {
+      this.openHelpModal()
+    }
+  }
+
+  private openHelpModal(): void {
+    this.state.helpModalOpen = true
+    this.helpModal = new HelpModal(this.renderCtx, {
+      theme: this.theme,
+      onClose: () => this.closeHelpModal(),
+    })
+    this.add(this.helpModal)
+  }
+
+  private closeHelpModal(): void {
+    if (this.helpModal) {
+      this.remove(this.helpModal.id)
+      this.helpModal = null
+    }
+    this.state.helpModalOpen = false
+  }
+
+  isCommandPaletteOpen(): boolean {
+    return this.state.commandPaletteOpen
+  }
+
+  isHelpModalOpen(): boolean {
+    return this.state.helpModalOpen
   }
 
   destroy(): void {
