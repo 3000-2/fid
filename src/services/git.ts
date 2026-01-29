@@ -1,4 +1,6 @@
 import { $ } from "bun"
+import { resolve } from "path"
+import { realpathSync } from "fs"
 
 export interface GitFile {
   path: string
@@ -102,9 +104,25 @@ export function createGitService(cwd: string): GitService {
     async getDiff(filePath: string, staged = false, isUntracked = false): Promise<string> {
       try {
         if (isUntracked) {
-          const fullPath = `${cwd}/${filePath}`
+          const fullPath = resolve(cwd, filePath)
+
+          try {
+            const realCwd = realpathSync(cwd)
+            const realPath = realpathSync(fullPath)
+            if (!realPath.startsWith(realCwd + "/") && realPath !== realCwd) {
+              return ""
+            }
+          } catch {
+            return ""
+          }
+
           const file = Bun.file(fullPath)
           if (!await file.exists()) return ""
+
+          const maxSize = 10 * 1024 * 1024
+          if (file.size > maxSize) {
+            return `diff --git a/${filePath} b/${filePath}\nnew file mode 100644\n--- /dev/null\n+++ b/${filePath}\n@@ -0,0 +1,1 @@\n+// File too large to display (${Math.round(file.size / 1024 / 1024)}MB)`
+          }
 
           const content = await file.text()
           const lines = content.split("\n")
