@@ -10,7 +10,6 @@ interface ToastOptions {
 }
 
 export class Toast extends BoxRenderable {
-  private theme: Theme
   private messageText: TextRenderable
   private hideTimeout: ReturnType<typeof setTimeout> | null = null
 
@@ -29,7 +28,6 @@ export class Toast extends BoxRenderable {
       backgroundColor: options.theme.colors.sidebarBg,
     })
 
-    this.theme = options.theme
     this.visible = false
 
     this.messageText = new TextRenderable(ctx, {
@@ -55,7 +53,6 @@ export class Toast extends BoxRenderable {
   }
 
   setTheme(theme: Theme): void {
-    this.theme = theme
     this.borderColor = theme.colors.success
     this.backgroundColor = theme.colors.sidebarBg
     this.messageText.fg = theme.colors.text
