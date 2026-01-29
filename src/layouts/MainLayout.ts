@@ -16,7 +16,7 @@ import { type GitFile, type GitService, MAX_FILE_SIZE } from "../services/git"
 import { type Theme, themes } from "../themes"
 import { type Config, saveConfig, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } from "../services/config"
 import { copyToClipboard } from "../utils/clipboard"
-import { validatePathWithinBase } from "../utils/path"
+import { validatePathWithinBase, safeResolvePath } from "../utils/path"
 import { logger } from "../utils/logger"
 
 interface MainLayoutOptions {
@@ -124,7 +124,10 @@ export class MainLayout extends BoxRenderable {
     })
     this.mainContent.add(this.welcomeText)
 
-    this.diffViewer = new DiffViewerRenderable(ctx, { theme })
+    this.diffViewer = new DiffViewerRenderable(ctx, {
+      theme,
+      onRequestFullFile: (filePath) => this.readFullFile(filePath),
+    })
     this.diffViewer.visible = false
     this.mainContent.add(this.diffViewer)
 
@@ -218,15 +221,38 @@ export class MainLayout extends BoxRenderable {
 
   private isTogglingStage = false
 
+  private calculateNextFocusPath(
+    wasStaged: boolean,
+    indexInSection: number,
+    newStaged: GitFile[],
+    newUnstaged: GitFile[]
+  ): string | undefined {
+    const sectionFiles = wasStaged ? newStaged : newUnstaged
+
+    if (sectionFiles.length > 0) {
+      const nextIndex = Math.min(indexInSection, sectionFiles.length - 1)
+      return sectionFiles[nextIndex].path
+    }
+
+    if (wasStaged && newUnstaged.length > 0) {
+      return newUnstaged[0].path
+    }
+    if (!wasStaged && newStaged.length > 0) {
+      return newStaged[newStaged.length - 1].path
+    }
+
+    return undefined
+  }
+
+  // Note: isTogglingStage prevents concurrent toggles while refreshFiles() has its own isRefreshing guard.
+  // Both guards work independently - isTogglingStage covers the full toggle operation including UI updates.
   private async handleStageToggle(file: GitFile): Promise<void> {
     if (this.isTogglingStage) return
     this.isTogglingStage = true
 
     try {
       const wasStaged = file.staged
-      const stagedFiles = this.state.files.filter(f => f.staged)
-      const unstagedFiles = this.state.files.filter(f => !f.staged)
-      const sectionFiles = wasStaged ? stagedFiles : unstagedFiles
+      const sectionFiles = this.state.files.filter(f => f.staged === wasStaged)
       const indexInSection = sectionFiles.findIndex(f => f.path === file.path)
 
       const success = wasStaged
@@ -238,19 +264,7 @@ export class MainLayout extends BoxRenderable {
 
         const newStaged = this.state.files.filter(f => f.staged)
         const newUnstaged = this.state.files.filter(f => !f.staged)
-        const newSectionFiles = wasStaged ? newStaged : newUnstaged
-
-        let focusPath: string | undefined
-        if (newSectionFiles.length > 0) {
-          const nextIndex = Math.min(indexInSection, newSectionFiles.length - 1)
-          focusPath = newSectionFiles[nextIndex].path
-        } else {
-          if (wasStaged && newUnstaged.length > 0) {
-            focusPath = newUnstaged[0].path
-          } else if (!wasStaged && newStaged.length > 0) {
-            focusPath = newStaged[newStaged.length - 1].path
-          }
-        }
+        const focusPath = this.calculateNextFocusPath(wasStaged, indexInSection, newStaged, newUnstaged)
 
         if (focusPath) {
           this.sidebar.setFocusedPath(focusPath)
@@ -287,6 +301,26 @@ export class MainLayout extends BoxRenderable {
     this.updateStatusBar()
   }
 
+  private async readFullFile(filePath: string): Promise<string | null> {
+    const cwd = this.gitService.getWorkingDirectory()
+    const submodulePath = this.state.selectedFile?.submodulePath
+    const targetCwd = submodulePath ? safeResolvePath(cwd, submodulePath) : cwd
+    if (!targetCwd) return null
+
+    const relativePath = submodulePath ? filePath.replace(`${submodulePath}/`, "") : filePath
+    const fullPath = safeResolvePath(targetCwd, relativePath)
+    if (!fullPath) return null
+
+    try {
+      const file = Bun.file(fullPath)
+      if (!await file.exists()) return null
+      if (file.size > MAX_FILE_SIZE) return null
+      return await file.text()
+    } catch {
+      return null
+    }
+  }
+
   handleKey(key: ParsedKey): boolean {
     if (this.state.settingsModalOpen && this.settingsModal) {
       return this.settingsModal.handleKey(key)
@@ -305,12 +339,25 @@ export class MainLayout extends BoxRenderable {
         return true
       }
     } else if (this.state.focusTarget === "diff") {
+      if (key.name === "o" && !key.ctrl && !key.meta && !key.shift) {
+        this.toggleFullFileView()
+        return true
+      }
       if (this.diffViewer.handleKey(key)) {
         return true
       }
     }
 
     return false
+  }
+
+  private async toggleFullFileView(): Promise<void> {
+    const success = await this.diffViewer.toggleFullFileView()
+    if (success) {
+      const mode = this.diffViewer.isShowingFullFile() ? "Full File" : "Diff"
+      this.toast.show(mode)
+    }
+    this.updateStatusBar()
   }
 
   toggleFocus(): void {
@@ -427,8 +474,12 @@ export class MainLayout extends BoxRenderable {
   private updateStatusBar(): void {
     const parts: string[] = []
 
-    const focusIndicator = this.state.focusTarget === "sidebar" ? "[Sidebar]" : "[Diff]"
-    parts.push(focusIndicator)
+    if (this.state.focusTarget === "sidebar") {
+      parts.push("[Sidebar]")
+    } else {
+      const mode = this.diffViewer.isShowingFullFile() ? "[Full]" : "[Diff]"
+      parts.push(mode)
+    }
 
     if (this.state.currentBranch) {
       parts.push(this.state.currentBranch)
@@ -444,7 +495,7 @@ export class MainLayout extends BoxRenderable {
     if (this.state.focusTarget === "sidebar") {
       parts.push("[Tab] diff  [j/k] navigate  [/] commands")
     } else {
-      parts.push("[Tab] sidebar  [j/k] scroll  [n/N] hunk")
+      parts.push("[Tab] sidebar  [o] full  [n/N] hunk")
     }
 
     this.statusText.content = parts.join("  |  ")
@@ -474,6 +525,7 @@ export class MainLayout extends BoxRenderable {
       files: this.state.files,
       cwd: this.gitService.getWorkingDirectory(),
       browseAllFiles: this.config.browseAllFiles,
+      getTrackedFiles: () => this.gitService.getTrackedFiles(),
       onCommand: (action, file, filePath) => this.handleCommand(action, file, filePath),
       onClose: () => this.closeCommandPalette(),
     })
@@ -539,6 +591,12 @@ export class MainLayout extends BoxRenderable {
 
     try {
       const file = Bun.file(safePath)
+      if (!await file.exists()) {
+        this.diffViewer.visible = false
+        this.welcomeText.content = "File not found"
+        this.welcomeText.visible = true
+        return
+      }
       if (file.size > MAX_FILE_SIZE) {
         this.diffViewer.visible = false
         this.welcomeText.content = `File too large (max ${MAX_FILE_SIZE / 1024 / 1024}MB)`
@@ -548,6 +606,9 @@ export class MainLayout extends BoxRenderable {
 
       const content = await file.text()
       const lines = content.split("\n")
+      if (lines.length > 0 && lines[lines.length - 1] === "") {
+        lines.pop()
+      }
       const lineCount = lines.length
       const header = `--- a/${filePath}\n+++ b/${filePath}\n@@ -1,${lineCount} +1,${lineCount} @@`
       const body = lines.map(line => ` ${line}`).join("\n")

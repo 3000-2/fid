@@ -15,6 +15,7 @@ interface DiffViewerOptions {
   filePath?: string
   filetype?: string
   theme?: Theme
+  onRequestFullFile?: (filePath: string) => Promise<string | null>
 }
 
 const FILETYPE_MAP: Record<string, string> = {
@@ -55,10 +56,16 @@ export class DiffViewerRenderable extends BoxRenderable {
   private currentFilePath?: string
   private currentFiletype?: string
 
+  private originalDiff: string = ""
+  private isFullFileView: boolean = false
+  private fullFileContent: string | null = null
+  private onRequestFullFile?: (filePath: string) => Promise<string | null>
+
   private static readonly LINE_SCROLL = 1
   private static readonly HALF_PAGE_SCROLL = 10
   private static readonly HUNK_THRESHOLD = 1
   private static readonly CHUNK_SIZE = 1500
+  private static readonly DOUBLE_KEY_TIMEOUT_MS = 500
 
   constructor(ctx: RenderContext, options: DiffViewerOptions = {}) {
     const theme = options.theme || themes["one-dark"]
@@ -72,6 +79,7 @@ export class DiffViewerRenderable extends BoxRenderable {
 
     this.renderCtx = ctx
     this.theme = theme
+    this.onRequestFullFile = options.onRequestFullFile
 
     this.syntaxStyle = this.createSyntaxStyle()
 
@@ -155,6 +163,10 @@ export class DiffViewerRenderable extends BoxRenderable {
       this.emptyState = null
     }
 
+    this.originalDiff = diff
+    this.isFullFileView = false
+    this.fullFileContent = null
+
     this.fullDiffLines = diff.split("\n")
     this.loadedLineCount = Math.min(this.fullDiffLines.length, DiffViewerRenderable.CHUNK_SIZE)
     this.currentFilePath = filePath
@@ -234,6 +246,54 @@ export class DiffViewerRenderable extends BoxRenderable {
     }
   }
 
+  async toggleFullFileView(): Promise<boolean> {
+    if (!this.currentFilePath || !this.onRequestFullFile) return false
+
+    if (this.isFullFileView) {
+      this.fullDiffLines = this.originalDiff.split("\n")
+      this.loadedLineCount = Math.min(this.fullDiffLines.length, DiffViewerRenderable.CHUNK_SIZE)
+      this.isFullFileView = false
+
+      const visibleDiff = this.getVisibleDiff()
+      this.parseHunkPositions(visibleDiff)
+      this.renderDiff(visibleDiff)
+      return true
+    }
+
+    if (!this.fullFileContent) {
+      this.fullFileContent = await this.onRequestFullFile(this.currentFilePath)
+    }
+
+    if (!this.fullFileContent) return false
+
+    const lines = this.fullFileContent.split("\n")
+    if (lines.length > 0 && lines[lines.length - 1] === "") {
+      lines.pop()
+    }
+    const lineCount = lines.length
+    const header = `--- a/${this.currentFilePath}\n+++ b/${this.currentFilePath}\n@@ -1,${lineCount} +1,${lineCount} @@`
+    const body = lines.map(line => ` ${line}`).join("\n")
+    const fullFileDiff = `${header}\n${body}`
+
+    this.fullDiffLines = fullFileDiff.split("\n")
+    this.loadedLineCount = Math.min(this.fullDiffLines.length, DiffViewerRenderable.CHUNK_SIZE)
+    this.isFullFileView = true
+
+    const visibleDiff = this.getVisibleDiff()
+    this.parseHunkPositions(visibleDiff)
+    this.renderDiff(visibleDiff)
+
+    if (this.scrollBox) {
+      this.scrollBox.scrollTo(0)
+    }
+
+    return true
+  }
+
+  isShowingFullFile(): boolean {
+    return this.isFullFileView
+  }
+
   setTheme(theme: Theme): void {
     this.theme = theme
     this.backgroundColor = theme.colors.background
@@ -257,6 +317,9 @@ export class DiffViewerRenderable extends BoxRenderable {
     this.loadedLineCount = 0
     this.currentFilePath = undefined
     this.currentFiletype = undefined
+    this.originalDiff = ""
+    this.isFullFileView = false
+    this.fullFileContent = null
     this.showEmptyState()
   }
 
@@ -276,14 +339,12 @@ export class DiffViewerRenderable extends BoxRenderable {
   handleKey(key: ParsedKey): boolean {
     if (!this.scrollBox) return false
 
-    // G - go to bottom (check before gg)
     if (key.name === "g" && key.shift && !key.ctrl && !key.meta) {
       this.gPending = false
       this.scrollBox.scrollTo(this.scrollBox.scrollHeight)
       return true
     }
 
-    // Handle gg (go to top)
     if (key.name === "g" && !key.shift && !key.ctrl && !key.meta) {
       if (this.gPending) {
         this.scrollBox.scrollTo(0)
@@ -298,20 +359,18 @@ export class DiffViewerRenderable extends BoxRenderable {
         this.gTimeout = setTimeout(() => {
           this.gPending = false
           this.gTimeout = null
-        }, 500)
+        }, DiffViewerRenderable.DOUBLE_KEY_TIMEOUT_MS)
         return true
       }
     }
 
     this.gPending = false
 
-    // N - previous hunk (check before n)
     if (key.name === "n" && key.shift && !key.ctrl && !key.meta) {
       this.goToPrevHunk()
       return true
     }
 
-    // n - next hunk
     if (key.name === "n" && !key.shift && !key.ctrl && !key.meta) {
       this.goToNextHunk()
       return true
@@ -359,7 +418,6 @@ export class DiffViewerRenderable extends BoxRenderable {
     const currentScroll = this.scrollBox.scrollTop
     const threshold = DiffViewerRenderable.HUNK_THRESHOLD
 
-    // Find the next hunk after current scroll position (with threshold to avoid stuck on current)
     for (const pos of this.hunkPositions) {
       if (pos > currentScroll + threshold) {
         this.scrollBox.scrollTo(pos)
@@ -374,7 +432,6 @@ export class DiffViewerRenderable extends BoxRenderable {
     const currentScroll = this.scrollBox.scrollTop
     const threshold = DiffViewerRenderable.HUNK_THRESHOLD
 
-    // Find the previous hunk before current scroll position (with threshold to avoid stuck on current)
     for (let i = this.hunkPositions.length - 1; i >= 0; i--) {
       if (this.hunkPositions[i] < currentScroll - threshold) {
         this.scrollBox.scrollTo(this.hunkPositions[i])

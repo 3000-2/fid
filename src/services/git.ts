@@ -1,9 +1,8 @@
 import { $ } from "bun"
-import { resolve } from "path"
 import { safeResolvePath } from "../utils/path"
 import { logger } from "../utils/logger"
 
-export const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
+export const MAX_FILE_SIZE = 10 * 1024 * 1024
 
 const VALID_STATUSES = new Set(["M", "A", "D", "R", "C", "U", "?"] as const)
 
@@ -37,16 +36,13 @@ export interface GitService {
   getSubmodules(): Promise<Submodule[]>
   stageFile(file: GitFile): Promise<boolean>
   unstageFile(file: GitFile): Promise<boolean>
+  getTrackedFiles(): Promise<string[]>
 }
 
 function getFileGroup(filePath: string): string {
   const parts = filePath.split("/")
-  if (parts.length <= 1) {
-    return ""
-  }
-  if (parts.length === 2) {
-    return parts[0]
-  }
+  if (parts.length <= 1) return ""
+  if (parts.length === 2) return parts[0]
   return `${parts[0]}/${parts[1]}`
 }
 
@@ -59,6 +55,33 @@ function isExpectedGitError(error: unknown): boolean {
     message.includes("no such file or directory") ||
     message.includes("does not exist")
   )
+}
+
+interface ResolvedFilePaths {
+  targetCwd: string
+  relativePath: string
+}
+
+function resolveFilePaths(cwd: string, file: GitFile): ResolvedFilePaths | null {
+  const targetCwd = file.submodulePath
+    ? safeResolvePath(cwd, file.submodulePath)
+    : cwd
+
+  if (!targetCwd) {
+    logger.error(`Invalid submodule path: ${file.submodulePath}`)
+    return null
+  }
+
+  const relativePath = file.submodulePath
+    ? file.path.replace(`${file.submodulePath}/`, "")
+    : file.path
+
+  if (!safeResolvePath(targetCwd, relativePath)) {
+    logger.error(`Path validation failed for: ${file.path}`)
+    return null
+  }
+
+  return { targetCwd, relativePath }
 }
 
 export function createGitService(cwd: string): GitService {
@@ -273,12 +296,17 @@ export function createGitService(cwd: string): GitService {
     },
 
     async getDiff(filePath: string, staged = false, isUntracked = false, submodulePath?: string): Promise<string> {
-      const targetCwd = submodulePath ? resolve(cwd, submodulePath) : cwd
+      const targetCwd = submodulePath ? safeResolvePath(cwd, submodulePath) : cwd
+      if (!targetCwd) {
+        logger.error(`Invalid submodule path: ${submodulePath}`)
+        return ""
+      }
+
       const relativePath = submodulePath ? filePath.replace(`${submodulePath}/`, "") : filePath
 
       try {
         if (isUntracked) {
-          const fullPath = safeResolvePath(cwd, resolve(targetCwd, relativePath))
+          const fullPath = safeResolvePath(targetCwd, relativePath)
           if (!fullPath) {
             logger.error(`Path validation failed for: ${filePath}`)
             return ""
@@ -293,6 +321,9 @@ export function createGitService(cwd: string): GitService {
 
           const content = await file.text()
           const lines = content.split("\n")
+          if (lines.length > 0 && lines[lines.length - 1] === "") {
+            lines.pop()
+          }
           const lineCount = lines.length
 
           const header = `diff --git a/${filePath} b/${filePath}\nnew file mode 100644\n--- /dev/null\n+++ b/${filePath}\n@@ -0,0 +1,${lineCount} @@`
@@ -313,26 +344,11 @@ export function createGitService(cwd: string): GitService {
     },
 
     async stageFile(file: GitFile): Promise<boolean> {
-      const targetCwd = file.submodulePath
-        ? safeResolvePath(cwd, file.submodulePath)
-        : cwd
-
-      if (!targetCwd) {
-        logger.error(`Invalid submodule path: ${file.submodulePath}`)
-        return false
-      }
-
-      const relativePath = file.submodulePath
-        ? file.path.replace(`${file.submodulePath}/`, "")
-        : file.path
-
-      if (!safeResolvePath(targetCwd, relativePath)) {
-        logger.error(`Path validation failed for: ${file.path}`)
-        return false
-      }
+      const paths = resolveFilePaths(cwd, file)
+      if (!paths) return false
 
       try {
-        await $`git -C ${targetCwd} add -- ${relativePath}`.quiet()
+        await $`git -C ${paths.targetCwd} add -- ${paths.relativePath}`.quiet()
         return true
       } catch (error) {
         if (!isExpectedGitError(error)) {
@@ -343,26 +359,11 @@ export function createGitService(cwd: string): GitService {
     },
 
     async unstageFile(file: GitFile): Promise<boolean> {
-      const targetCwd = file.submodulePath
-        ? safeResolvePath(cwd, file.submodulePath)
-        : cwd
-
-      if (!targetCwd) {
-        logger.error(`Invalid submodule path: ${file.submodulePath}`)
-        return false
-      }
-
-      const relativePath = file.submodulePath
-        ? file.path.replace(`${file.submodulePath}/`, "")
-        : file.path
-
-      if (!safeResolvePath(targetCwd, relativePath)) {
-        logger.error(`Path validation failed for: ${file.path}`)
-        return false
-      }
+      const paths = resolveFilePaths(cwd, file)
+      if (!paths) return false
 
       try {
-        await $`git -C ${targetCwd} restore --staged -- ${relativePath}`.quiet()
+        await $`git -C ${paths.targetCwd} restore --staged -- ${paths.relativePath}`.quiet()
         return true
       } catch (error) {
         if (!isExpectedGitError(error)) {
@@ -370,6 +371,40 @@ export function createGitService(cwd: string): GitService {
         }
         return false
       }
+    },
+
+    async getTrackedFiles(): Promise<string[]> {
+      const files: string[] = []
+
+      try {
+        const result = await $`git -C ${cwd} ls-files`.text()
+        const mainFiles = result.trim().split("\n").filter(line => line.length > 0)
+        files.push(...mainFiles)
+
+        const submodules = await this.getSubmodules()
+        for (const submodule of submodules) {
+          const submoduleCwd = safeResolvePath(cwd, submodule.path)
+          if (!submoduleCwd) continue
+
+          try {
+            const subResult = await $`git -C ${submoduleCwd} ls-files`.text()
+            const subFiles = subResult.trim().split("\n")
+              .filter(line => line.length > 0)
+              .map(file => `${submodule.path}/${file}`)
+            files.push(...subFiles)
+          } catch (error) {
+            if (!isExpectedGitError(error)) {
+              logger.error(`Error getting files for submodule ${submodule.name}:`, error)
+            }
+          }
+        }
+      } catch (error) {
+        if (!isExpectedGitError(error)) {
+          logger.error("Error getting tracked files:", error)
+        }
+      }
+
+      return files
     },
   }
 }

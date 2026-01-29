@@ -5,12 +5,11 @@ import {
   type RenderContext,
   type ParsedKey,
 } from "@opentui/core"
-import { Glob } from "bun"
-import { resolve } from "path"
 import type { Theme } from "../themes"
 import type { GitFile } from "../services/git"
 import { safeResolvePath } from "../utils/path"
 import { fuzzyFilter } from "../utils/fuzzy"
+import { logger } from "../utils/logger"
 
 type CommandAction = "settings" | "help" | "refresh" | "file" | "browse"
 
@@ -28,6 +27,7 @@ interface CommandPaletteOptions {
   files: GitFile[]
   cwd: string
   browseAllFiles?: boolean
+  getTrackedFiles?: () => Promise<string[]>
   onCommand: (action: CommandAction, file?: GitFile, filePath?: string) => void
   onClose: () => void
 }
@@ -38,6 +38,7 @@ export class CommandPalette extends BoxRenderable {
   private files: GitFile[]
   private cwd: string
   private browseAllFiles: boolean
+  private getTrackedFiles?: () => Promise<string[]>
   private onCommand: (action: CommandAction, file?: GitFile, filePath?: string) => void
   private onClose: () => void
 
@@ -55,25 +56,13 @@ export class CommandPalette extends BoxRenderable {
   private resultIds: string[] = []
 
   private static readonly MAX_VISIBLE_RESULTS = 12
+  private static readonly MAX_SEARCH_RESULTS = 50
 
   private baseCommands: Command[] = [
     { id: "settings", label: "Settings", description: "Change theme and preferences", action: "settings" },
     { id: "help", label: "Help", description: "Show keyboard shortcuts", action: "help" },
     { id: "refresh", label: "Refresh", description: "Reload changed files", action: "refresh" },
   ]
-
-  private static readonly IGNORE_DIRS = new Set([
-    "node_modules",
-    ".git",
-    "dist",
-    "build",
-    ".next",
-    ".cache",
-    "coverage",
-    ".turbo",
-  ])
-
-  private static readonly MAX_PROJECT_FILES = 1000
 
   constructor(ctx: RenderContext, options: CommandPaletteOptions) {
     super(ctx, {
@@ -94,10 +83,11 @@ export class CommandPalette extends BoxRenderable {
     this.files = options.files
     this.cwd = options.cwd
     this.browseAllFiles = options.browseAllFiles || false
+    this.getTrackedFiles = options.getTrackedFiles
     this.onCommand = options.onCommand
     this.onClose = options.onClose
 
-    if (this.browseAllFiles) {
+    if (this.browseAllFiles && this.getTrackedFiles) {
       this.loadProjectFilesAsync()
     }
 
@@ -107,38 +97,30 @@ export class CommandPalette extends BoxRenderable {
   }
 
   private async loadProjectFilesAsync(): Promise<void> {
-    if (this.isClosed) return
+    if (this.isClosed || !this.getTrackedFiles) return
 
     this.loadingId++
     const currentLoadingId = this.loadingId
 
     try {
-      const glob = new Glob("**/*")
-      const resolvedCwd = resolve(this.cwd)
-      const collectedFiles: string[] = []
-
-      for await (const file of glob.scan({ cwd: resolvedCwd, onlyFiles: true })) {
-        if (this.isClosed || this.loadingId !== currentLoadingId) return
-        const segments = file.split("/")
-        const shouldIgnore = segments.some(seg => CommandPalette.IGNORE_DIRS.has(seg))
-        if (!shouldIgnore) {
-          collectedFiles.push(file)
-        }
-        if (collectedFiles.length >= CommandPalette.MAX_PROJECT_FILES) break
-      }
+      const files = await this.getTrackedFiles()
 
       if (this.isClosed || this.loadingId !== currentLoadingId) return
-      this.projectFiles = collectedFiles
+      this.projectFiles = files
       this.filterItems()
       this.renderResults()
-    } catch {
-      // Ignore glob scan errors (permission denied, etc.)
+    } catch (error) {
+      logger.error("Failed to load project files:", error)
     }
   }
 
   destroy(): void {
     this.isClosed = true
     super.destroy()
+  }
+
+  setTheme(theme: Theme): void {
+    this.theme = theme
   }
 
   private buildUI(): void {
@@ -219,8 +201,6 @@ export class CommandPalette extends BoxRenderable {
     }
     this.resultIds = []
   }
-
-  private static readonly MAX_SEARCH_RESULTS = 50
 
   private filterItems(): void {
     const query = this.query.trim()
