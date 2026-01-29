@@ -160,6 +160,71 @@ export class GitChangesRenderable extends BoxRenderable {
     this.renderFiles()
   }
 
+  private groupFilesByGroup(files: GitFile[]): Map<string, GitFile[]> {
+    const groups = new Map<string, GitFile[]>()
+    for (const file of files) {
+      const group = file.group || ""
+      const existing = groups.get(group)
+      if (existing) {
+        existing.push(file)
+      } else {
+        groups.set(group, [file])
+      }
+    }
+    return groups
+  }
+
+  private renderGroupedFiles(
+    files: GitFile[],
+    startIndex: number,
+    sectionId: string
+  ): number {
+    let fileIndex = startIndex
+    const groups = this.groupFilesByGroup(files)
+    const sortedGroups = Array.from(groups.keys()).sort((a, b) => {
+      if (a === "") return 1
+      if (b === "") return -1
+      return a.localeCompare(b)
+    })
+
+    for (const groupName of sortedGroups) {
+      const groupFiles = groups.get(groupName)
+      if (!groupFiles) continue
+
+      if (groupName) {
+        const hasSubmodule = groupFiles.some(f => f.isSubmodule)
+        const groupLabel = hasSubmodule ? `${groupName} (submodule)` : groupName
+        const groupHeader = new TextRenderable(this.renderCtx, {
+          id: `${sectionId}-group-${groupName.replace(/\//g, "-")}`,
+          content: `  ${groupLabel}`,
+          fg: this.theme.colors.textMuted,
+        })
+        this.sectionElements.push(groupHeader)
+        this.contentBox.add(groupHeader)
+      }
+
+      for (const file of groupFiles) {
+        const idx = fileIndex
+        const isSelected = idx === this.selectedIndex
+        const isFocused = idx === this.focusedIndex
+        const item = new FileItem(
+          this.renderCtx,
+          file,
+          idx,
+          isSelected,
+          isFocused,
+          this.theme,
+          (f) => this.handleFileSelect(f, idx)
+        )
+        this.fileItems.push(item)
+        this.contentBox.add(item)
+        fileIndex++
+      }
+    }
+
+    return fileIndex
+  }
+
   private renderFiles(): void {
     for (const item of this.fileItems) {
       this.contentBox.remove(item.id)
@@ -198,23 +263,7 @@ export class GitChangesRenderable extends BoxRenderable {
       this.sectionElements.push(stagedHeader)
       this.contentBox.add(stagedHeader)
 
-      for (const file of stagedFiles) {
-        const idx = fileIndex
-        const isSelected = idx === this.selectedIndex
-        const isFocused = idx === this.focusedIndex
-        const item = new FileItem(
-          this.renderCtx,
-          file,
-          idx,
-          isSelected,
-          isFocused,
-          this.theme,
-          (f) => this.handleFileSelect(f, idx)
-        )
-        this.fileItems.push(item)
-        this.contentBox.add(item)
-        fileIndex++
-      }
+      fileIndex = this.renderGroupedFiles(stagedFiles, fileIndex, "staged")
     }
 
     if (unstagedFiles.length > 0) {
@@ -228,23 +277,7 @@ export class GitChangesRenderable extends BoxRenderable {
       this.sectionElements.push(unstagedHeader)
       this.contentBox.add(unstagedHeader)
 
-      for (const file of unstagedFiles) {
-        const idx = fileIndex
-        const isSelected = idx === this.selectedIndex
-        const isFocused = idx === this.focusedIndex
-        const item = new FileItem(
-          this.renderCtx,
-          file,
-          idx,
-          isSelected,
-          isFocused,
-          this.theme,
-          (f) => this.handleFileSelect(f, idx)
-        )
-        this.fileItems.push(item)
-        this.contentBox.add(item)
-        fileIndex++
-      }
+      fileIndex = this.renderGroupedFiles(unstagedFiles, fileIndex, "unstaged")
     }
   }
 

@@ -1,22 +1,141 @@
 import { $ } from "bun"
 import { resolve } from "path"
-import { realpathSync } from "fs"
+import { safeResolvePath } from "../utils/path"
+import { logger } from "../utils/logger"
+
+export const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
+
+const VALID_STATUSES = new Set(["M", "A", "D", "R", "C", "U", "?"] as const)
+
+type GitStatus = "M" | "A" | "D" | "R" | "C" | "U" | "?"
+
+function parseGitStatus(statusChar: string): GitStatus | null {
+  const char = statusChar.charAt(0)
+  return VALID_STATUSES.has(char as GitStatus) ? (char as GitStatus) : null
+}
 
 export interface GitFile {
   path: string
-  status: "M" | "A" | "D" | "R" | "C" | "U" | "?"
+  status: GitStatus
   staged: boolean
+  group?: string
+  isSubmodule?: boolean
+  submodulePath?: string
+}
+
+export interface Submodule {
+  name: string
+  path: string
 }
 
 export interface GitService {
   getChangedFiles(): Promise<GitFile[]>
-  getDiff(filePath: string, staged?: boolean, isUntracked?: boolean): Promise<string>
+  getDiff(filePath: string, staged?: boolean, isUntracked?: boolean, submodulePath?: string): Promise<string>
   getCurrentBranch(): Promise<string>
   getWorkingDirectory(): string
   isGitRepo(): Promise<boolean>
+  getSubmodules(): Promise<Submodule[]>
+}
+
+function getFileGroup(filePath: string): string {
+  const parts = filePath.split("/")
+  if (parts.length <= 1) {
+    return ""
+  }
+  if (parts.length === 2) {
+    return parts[0]
+  }
+  return `${parts[0]}/${parts[1]}`
+}
+
+function isExpectedGitError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  const message = error.message.toLowerCase()
+  return (
+    message.includes("not a git repository") ||
+    message.includes("not initialized") ||
+    message.includes("no such file or directory") ||
+    message.includes("does not exist")
+  )
 }
 
 export function createGitService(cwd: string): GitService {
+  async function getSubmoduleChangedFiles(submodule: Submodule): Promise<GitFile[]> {
+    const files: GitFile[] = []
+
+    const submoduleCwd = safeResolvePath(cwd, submodule.path)
+    if (!submoduleCwd) {
+      logger.error(`Invalid submodule path: ${submodule.path}`)
+      return files
+    }
+
+    const seenPaths = new Set<string>()
+
+    try {
+      const stagedResult = await $`git -C ${submoduleCwd} diff --cached --name-status`.text()
+      for (const line of stagedResult.trim().split("\n")) {
+        if (!line) continue
+        const [statusRaw, ...pathParts] = line.split("\t")
+        const filePath = pathParts.join("\t")
+        const status = parseGitStatus(statusRaw)
+
+        if (status && filePath && !seenPaths.has(filePath)) {
+          seenPaths.add(filePath)
+          files.push({
+            path: `${submodule.path}/${filePath}`,
+            status,
+            staged: true,
+            group: submodule.name,
+            isSubmodule: true,
+            submodulePath: submodule.path,
+          })
+        }
+      }
+
+      const unstagedResult = await $`git -C ${submoduleCwd} diff --name-status`.text()
+      for (const line of unstagedResult.trim().split("\n")) {
+        if (!line) continue
+        const [statusRaw, ...pathParts] = line.split("\t")
+        const filePath = pathParts.join("\t")
+        const status = parseGitStatus(statusRaw)
+
+        if (status && filePath && !seenPaths.has(filePath)) {
+          seenPaths.add(filePath)
+          files.push({
+            path: `${submodule.path}/${filePath}`,
+            status,
+            staged: false,
+            group: submodule.name,
+            isSubmodule: true,
+            submodulePath: submodule.path,
+          })
+        }
+      }
+
+      const untrackedResult = await $`git -C ${submoduleCwd} ls-files --others --exclude-standard`.text()
+      for (const line of untrackedResult.trim().split("\n")) {
+        if (!line) continue
+        if (!seenPaths.has(line)) {
+          seenPaths.add(line)
+          files.push({
+            path: `${submodule.path}/${line}`,
+            status: "?",
+            staged: false,
+            group: submodule.name,
+            isSubmodule: true,
+            submodulePath: submodule.path,
+          })
+        }
+      }
+    } catch (error) {
+      if (!isExpectedGitError(error)) {
+        logger.error(`Error getting changed files for submodule ${submodule.name}:`, error)
+      }
+    }
+
+    return files
+  }
+
   return {
     getWorkingDirectory() {
       return cwd
@@ -39,9 +158,39 @@ export function createGitService(cwd: string): GitService {
 
         const head = await $`git -C ${cwd} rev-parse --short HEAD`.text()
         return head.trim() || "HEAD"
-      } catch {
+      } catch (error) {
+        if (!isExpectedGitError(error)) {
+          logger.error("Error getting current branch:", error)
+        }
         return ""
       }
+    },
+
+    async getSubmodules(): Promise<Submodule[]> {
+      const submodules: Submodule[] = []
+      try {
+        const result = await $`git -C ${cwd} submodule status`.text()
+        for (const line of result.trim().split("\n")) {
+          if (!line) continue
+          const match = line.match(/^[\s+-]?[a-f0-9]+\s+(\S+)/)
+          if (match) {
+            const path = match[1]
+
+            if (!safeResolvePath(cwd, path)) {
+              logger.error(`Skipping invalid submodule path: ${path}`)
+              continue
+            }
+
+            const name = path.split("/").pop() || path
+            submodules.push({ name, path })
+          }
+        }
+      } catch (error) {
+        if (!isExpectedGitError(error)) {
+          logger.error("Error getting submodules:", error)
+        }
+      }
+      return submodules
     },
 
     async getChangedFiles(): Promise<GitFile[]> {
@@ -49,39 +198,42 @@ export function createGitService(cwd: string): GitService {
       const seenPaths = new Set<string>()
 
       try {
-        // Staged files
         const stagedResult = await $`git -C ${cwd} diff --cached --name-status`.text()
         for (const line of stagedResult.trim().split("\n")) {
           if (!line) continue
-          const [status, ...pathParts] = line.split("\t")
+          const [statusRaw, ...pathParts] = line.split("\t")
           const path = pathParts.join("\t")
-          if (path && !seenPaths.has(path)) {
+          const status = parseGitStatus(statusRaw)
+
+          if (status && path && !seenPaths.has(path)) {
             seenPaths.add(path)
             files.push({
               path,
-              status: status.charAt(0) as GitFile["status"],
+              status,
               staged: true,
+              group: getFileGroup(path),
             })
           }
         }
 
-        // Unstaged modified files
         const unstagedResult = await $`git -C ${cwd} diff --name-status`.text()
         for (const line of unstagedResult.trim().split("\n")) {
           if (!line) continue
-          const [status, ...pathParts] = line.split("\t")
+          const [statusRaw, ...pathParts] = line.split("\t")
           const path = pathParts.join("\t")
-          if (path && !seenPaths.has(path)) {
+          const status = parseGitStatus(statusRaw)
+
+          if (status && path && !seenPaths.has(path)) {
             seenPaths.add(path)
             files.push({
               path,
-              status: status.charAt(0) as GitFile["status"],
+              status,
               staged: false,
+              group: getFileGroup(path),
             })
           }
         }
 
-        // Untracked files
         const untrackedResult = await $`git -C ${cwd} ls-files --others --exclude-standard`.text()
         for (const line of untrackedResult.trim().split("\n")) {
           if (!line) continue
@@ -91,36 +243,49 @@ export function createGitService(cwd: string): GitService {
               path: line,
               status: "?",
               staged: false,
+              group: getFileGroup(line),
             })
           }
         }
-      } catch {
-        // Return empty array on error - UI will show "0 changes"
+
+        const submodules = await this.getSubmodules()
+        const submoduleFileArrays = await Promise.all(
+          submodules.map(submodule => getSubmoduleChangedFiles(submodule))
+        )
+
+        for (const submoduleFiles of submoduleFileArrays) {
+          for (const file of submoduleFiles) {
+            if (!seenPaths.has(file.path)) {
+              seenPaths.add(file.path)
+              files.push(file)
+            }
+          }
+        }
+      } catch (error) {
+        if (!isExpectedGitError(error)) {
+          logger.error("Error getting changed files:", error)
+        }
       }
 
       return files.sort((a, b) => a.path.localeCompare(b.path))
     },
 
-    async getDiff(filePath: string, staged = false, isUntracked = false): Promise<string> {
+    async getDiff(filePath: string, staged = false, isUntracked = false, submodulePath?: string): Promise<string> {
+      const targetCwd = submodulePath ? resolve(cwd, submodulePath) : cwd
+      const relativePath = submodulePath ? filePath.replace(`${submodulePath}/`, "") : filePath
+
       try {
         if (isUntracked) {
-          const fullPath = resolve(cwd, filePath)
-
-          try {
-            const realCwd = realpathSync(cwd)
-            const realPath = realpathSync(fullPath)
-            if (!realPath.startsWith(realCwd + "/") && realPath !== realCwd) {
-              return ""
-            }
-          } catch {
+          const fullPath = safeResolvePath(cwd, resolve(targetCwd, relativePath))
+          if (!fullPath) {
+            logger.error(`Path validation failed for: ${filePath}`)
             return ""
           }
 
           const file = Bun.file(fullPath)
           if (!await file.exists()) return ""
 
-          const maxSize = 10 * 1024 * 1024
-          if (file.size > maxSize) {
+          if (file.size > MAX_FILE_SIZE) {
             return `diff --git a/${filePath} b/${filePath}\nnew file mode 100644\n--- /dev/null\n+++ b/${filePath}\n@@ -0,0 +1,1 @@\n+// File too large to display (${Math.round(file.size / 1024 / 1024)}MB)`
           }
 
@@ -134,10 +299,13 @@ export function createGitService(cwd: string): GitService {
         }
 
         if (staged) {
-          return await $`git -C ${cwd} diff --cached -- ${filePath}`.text()
+          return await $`git -C ${targetCwd} diff --cached -- ${relativePath}`.text()
         }
-        return await $`git -C ${cwd} diff -- ${filePath}`.text()
-      } catch {
+        return await $`git -C ${targetCwd} diff -- ${relativePath}`.text()
+      } catch (error) {
+        if (!isExpectedGitError(error)) {
+          logger.error(`Error getting diff for ${filePath}:`, error)
+        }
         return ""
       }
     },

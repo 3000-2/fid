@@ -8,6 +8,7 @@ import { SetupWizard } from "./components/SetupWizard"
 import { createGitService } from "./services/git"
 import { configExists, loadConfig, saveConfig, type Config } from "./services/config"
 import { themes } from "./themes"
+import { logger } from "./utils/logger"
 
 async function runSetupWizard(renderer: ReturnType<typeof createCliRenderer> extends Promise<infer T> ? T : never): Promise<Config | null> {
   return new Promise((resolveConfig) => {
@@ -35,6 +36,8 @@ async function runSetupWizard(renderer: ReturnType<typeof createCliRenderer> ext
 }
 
 async function main() {
+  logger.init()
+
   const cwd = resolve(process.argv[2] || process.cwd())
 
   if (!existsSync(cwd) || !statSync(cwd).isDirectory()) {
@@ -148,6 +151,7 @@ async function main() {
 }
 
 main().catch((e) => {
+  logger.error("Fatal error", e)
   console.error("Error:", e)
   process.exit(1)
 })

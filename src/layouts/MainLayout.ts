@@ -6,17 +6,18 @@ import {
   type ParsedKey,
   RGBA,
 } from "@opentui/core"
-import { realpathSync } from "fs"
 import { SidebarRenderable } from "../components/Sidebar"
 import { DiffViewerRenderable } from "../components/DiffViewer"
 import { SettingsModal } from "../components/SettingsModal"
 import { CommandPalette } from "../components/CommandPalette"
 import { HelpModal } from "../components/HelpModal"
 import { Toast } from "../components/Toast"
-import type { GitFile, GitService } from "../services/git"
+import { type GitFile, type GitService, MAX_FILE_SIZE } from "../services/git"
 import { type Theme, themes } from "../themes"
 import { type Config, saveConfig, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } from "../services/config"
 import { copyToClipboard } from "../utils/clipboard"
+import { validatePathWithinBase } from "../utils/path"
+import { logger } from "../utils/logger"
 
 interface MainLayoutOptions {
   gitService: GitService
@@ -221,7 +222,7 @@ export class MainLayout extends BoxRenderable {
     this.diffViewer.visible = true
 
     const isUntracked = file.status === "?"
-    const diff = await this.gitService.getDiff(file.path, file.staged, isUntracked)
+    const diff = await this.gitService.getDiff(file.path, file.staged, isUntracked, file.submodulePath)
 
     if (diff) {
       this.diffViewer.showDiff(diff, file.path)
@@ -360,6 +361,9 @@ export class MainLayout extends BoxRenderable {
       }
 
       this.updateStatusBar()
+    } catch (error) {
+      logger.error("Error refreshing files:", error)
+      this.updateStatus("Error refreshing files")
     } finally {
       this.isRefreshing = false
     }
@@ -459,21 +463,20 @@ export class MainLayout extends BoxRenderable {
     }
   }
 
-  private static readonly MAX_BROWSE_FILE_SIZE = 10 * 1024 * 1024 // 10MB
-
   private async handleBrowseFile(filePath: string): Promise<void> {
     const cwd = this.gitService.getWorkingDirectory()
 
-    try {
-      const realCwd = realpathSync(cwd)
-      const realPath = realpathSync(filePath)
-      if (!realPath.startsWith(realCwd + "/") && realPath !== realCwd) {
-        this.welcomeText.content = "Access denied: Path outside working directory"
-        this.welcomeText.visible = true
-        this.diffViewer.visible = false
-        return
-      }
-    } catch {
+    const pathValidation = validatePathWithinBase(cwd, filePath)
+    if (!pathValidation.valid) {
+      logger.error(`Path validation failed for ${filePath}: ${pathValidation.error}`)
+      this.welcomeText.content = pathValidation.error || "Invalid file path"
+      this.welcomeText.visible = true
+      this.diffViewer.visible = false
+      return
+    }
+
+    const safePath = pathValidation.resolvedPath
+    if (!safePath) {
       this.welcomeText.content = "Failed to resolve file path"
       this.welcomeText.visible = true
       this.diffViewer.visible = false
@@ -484,10 +487,10 @@ export class MainLayout extends BoxRenderable {
     this.diffViewer.visible = true
 
     try {
-      const file = Bun.file(filePath)
-      if (file.size > MainLayout.MAX_BROWSE_FILE_SIZE) {
+      const file = Bun.file(safePath)
+      if (file.size > MAX_FILE_SIZE) {
         this.diffViewer.visible = false
-        this.welcomeText.content = "File too large (max 10MB)"
+        this.welcomeText.content = `File too large (max ${MAX_FILE_SIZE / 1024 / 1024}MB)`
         this.welcomeText.visible = true
         return
       }
@@ -499,7 +502,8 @@ export class MainLayout extends BoxRenderable {
       const body = lines.map(line => ` ${line}`).join("\n")
       const fakeDiff = `${header}\n${body}`
       this.diffViewer.showDiff(fakeDiff, filePath)
-    } catch {
+    } catch (error) {
+      logger.error(`Failed to read file ${filePath}:`, error)
       this.diffViewer.visible = false
       this.welcomeText.content = "Failed to read file"
       this.welcomeText.visible = true

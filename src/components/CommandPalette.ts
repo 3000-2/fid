@@ -6,9 +6,9 @@ import {
 } from "@opentui/core"
 import { Glob } from "bun"
 import { resolve } from "path"
-import { realpathSync } from "fs"
 import type { Theme } from "../themes"
 import type { GitFile } from "../services/git"
+import { safeResolvePath } from "../utils/path"
 
 type CommandAction = "settings" | "help" | "refresh" | "file" | "browse"
 
@@ -131,16 +131,6 @@ export class CommandPalette extends BoxRenderable {
     }
   }
 
-  private isPathSafe(filePath: string): boolean {
-    try {
-      const realCwd = realpathSync(this.cwd)
-      const realPath = realpathSync(filePath)
-      return realPath === realCwd || realPath.startsWith(realCwd + "/")
-    } catch {
-      return false
-    }
-  }
-
   destroy(): void {
     this.isClosed = true
     super.destroy()
@@ -234,19 +224,19 @@ export class CommandPalette extends BoxRenderable {
       ]
 
       if (this.browseAllFiles) {
-        const browseFiles = this.projectFiles
-          .slice(0, 5)
-          .map((path) => {
-            const fullPath = resolve(this.cwd, path)
-            return {
+        const browseFiles: Command[] = []
+        for (const path of this.projectFiles.slice(0, 5)) {
+          const fullPath = safeResolvePath(this.cwd, path)
+          if (fullPath) {
+            browseFiles.push({
               id: `browse-${path}`,
               label: path.split("/").pop() || path,
               description: path,
               action: "browse" as CommandAction,
               filePath: fullPath,
-            }
-          })
-          .filter((item) => this.isPathSafe(item.filePath))
+            })
+          }
+        }
         this.filteredItems.push(...browseFiles)
       }
     } else {
@@ -273,22 +263,24 @@ export class CommandPalette extends BoxRenderable {
           file,
         }))
 
-      const matchedProjectFiles = this.browseAllFiles
-        ? this.projectFiles
-            .filter((path) => path.toLowerCase().includes(lowerQuery))
-            .slice(0, 10)
-            .map((path) => {
-              const fullPath = resolve(this.cwd, path)
-              return {
-                id: `browse-${path}`,
-                label: path.split("/").pop() || path,
-                description: path,
-                action: "browse" as CommandAction,
-                filePath: fullPath,
-              }
+      const matchedProjectFiles: Command[] = []
+      if (this.browseAllFiles) {
+        const filtered = this.projectFiles
+          .filter((path) => path.toLowerCase().includes(lowerQuery))
+          .slice(0, 10)
+        for (const path of filtered) {
+          const fullPath = safeResolvePath(this.cwd, path)
+          if (fullPath) {
+            matchedProjectFiles.push({
+              id: `browse-${path}`,
+              label: path.split("/").pop() || path,
+              description: path,
+              action: "browse" as CommandAction,
+              filePath: fullPath,
             })
-            .filter((item) => this.isPathSafe(item.filePath))
-        : []
+          }
+        }
+      }
 
       this.filteredItems = [...matchedCommands, ...matchedGitFiles, ...matchedProjectFiles]
     }
