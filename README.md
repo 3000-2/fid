@@ -12,8 +12,8 @@ A terminal UI for viewing git diffs with style.
 - **Staged/Unstaged Sections** - Easily distinguish between staged and unstaged changes
 - **Multiple Themes** - One Dark, GitHub Dark, Monokai
 - **Setup Wizard** - First-run configuration with live preview
-- **Settings Modal** - Change settings on the fly with `/` key
-- **Keyboard Navigation** - Vim-style navigation (j/k) and arrow keys
+- **Command Palette** - Quick access to files and commands with `/` key
+- **Keyboard Navigation** - Vim-style navigation (j/k/g/G) and arrow keys
 
 ## Installation
 
@@ -21,6 +21,12 @@ A terminal UI for viewing git diffs with style.
 
 ```bash
 brew install 3000-2/tap/fid
+```
+
+To update:
+
+```bash
+brew upgrade fid
 ```
 
 ### From Source
@@ -49,14 +55,26 @@ bun run start /path/to/git/repo
 
 | Key | Action |
 |-----|--------|
+| `/` | Open command palette |
+| `?` | Show help |
 | `j` / `↓` | Move down |
 | `k` / `↑` | Move up |
+| `g` | Go to first file |
+| `G` | Go to last file |
 | `Enter` | Select file |
-| `/` | Open settings |
-| `Esc` | Close settings |
 | `b` | Toggle sidebar |
 | `r` | Refresh files |
+| `Esc` | Close modal |
 | `Ctrl+C` | Exit |
+
+## Command Palette
+
+Press `/` to open the command palette. You can:
+
+- **Search files** - Type to filter changed files by name
+- **Settings** - Open theme and preferences
+- **Help** - View keyboard shortcuts
+- **Refresh** - Reload changed files
 
 ## Configuration
 
