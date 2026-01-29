@@ -13,6 +13,7 @@ interface SidebarOptions {
   cwd: string
   selectedPath?: string
   onFileSelect?: (file: GitFile) => void
+  onStageToggle?: (file: GitFile) => void
   onFocusChange?: (panel: "files" | null) => void
   theme?: Theme
 }
@@ -43,6 +44,7 @@ export class SidebarRenderable extends BoxRenderable {
       files: options.files,
       selectedPath: options.selectedPath,
       onFileSelect: options.onFileSelect,
+      onStageToggle: options.onStageToggle,
       theme: initialTheme,
     })
     this.gitChanges.flexGrow = 1
@@ -95,6 +97,10 @@ export class SidebarRenderable extends BoxRenderable {
 
   setSelectedPath(path: string | undefined): void {
     this.gitChanges.setSelectedPath(path)
+  }
+
+  setFocusedPath(path: string): void {
+    this.gitChanges.setFocusedPath(path)
   }
 
   setWidth(width: number): void {

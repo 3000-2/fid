@@ -150,6 +150,7 @@ export class MainLayout extends BoxRenderable {
       files: [],
       cwd: this.gitService.getWorkingDirectory(),
       onFileSelect: (file) => this.handleFileSelect(file),
+      onStageToggle: (file) => this.handleStageToggle(file),
       onFocusChange: (_panel) => {
         this.updateStatusBar()
       },
@@ -213,6 +214,56 @@ export class MainLayout extends BoxRenderable {
   private updateSidebarVisibility(): void {
     this.sidebar.visible = this.state.sidebarVisible
     this.updateStatusBar()
+  }
+
+  private isTogglingStage = false
+
+  private async handleStageToggle(file: GitFile): Promise<void> {
+    if (this.isTogglingStage) return
+    this.isTogglingStage = true
+
+    try {
+      const wasStaged = file.staged
+      const stagedFiles = this.state.files.filter(f => f.staged)
+      const unstagedFiles = this.state.files.filter(f => !f.staged)
+      const sectionFiles = wasStaged ? stagedFiles : unstagedFiles
+      const indexInSection = sectionFiles.findIndex(f => f.path === file.path)
+
+      const success = wasStaged
+        ? await this.gitService.unstageFile(file)
+        : await this.gitService.stageFile(file)
+
+      if (success) {
+        await this.refreshFiles()
+
+        const newStaged = this.state.files.filter(f => f.staged)
+        const newUnstaged = this.state.files.filter(f => !f.staged)
+        const newSectionFiles = wasStaged ? newStaged : newUnstaged
+
+        let focusPath: string | undefined
+        if (newSectionFiles.length > 0) {
+          const nextIndex = Math.min(indexInSection, newSectionFiles.length - 1)
+          focusPath = newSectionFiles[nextIndex].path
+        } else {
+          if (wasStaged && newUnstaged.length > 0) {
+            focusPath = newUnstaged[0].path
+          } else if (!wasStaged && newStaged.length > 0) {
+            focusPath = newStaged[newStaged.length - 1].path
+          }
+        }
+
+        if (focusPath) {
+          this.sidebar.setFocusedPath(focusPath)
+        }
+
+        const action = wasStaged ? "Unstaged" : "Staged"
+        this.toast.show(`${action}: ${file.path.split("/").pop()}`)
+      } else {
+        this.toast.show("Failed to toggle stage status")
+      }
+    } finally {
+      this.isTogglingStage = false
+    }
   }
 
   private async handleFileSelect(file: GitFile): Promise<void> {

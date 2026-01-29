@@ -35,6 +35,8 @@ export interface GitService {
   getWorkingDirectory(): string
   isGitRepo(): Promise<boolean>
   getSubmodules(): Promise<Submodule[]>
+  stageFile(file: GitFile): Promise<boolean>
+  unstageFile(file: GitFile): Promise<boolean>
 }
 
 function getFileGroup(filePath: string): string {
@@ -307,6 +309,66 @@ export function createGitService(cwd: string): GitService {
           logger.error(`Error getting diff for ${filePath}:`, error)
         }
         return ""
+      }
+    },
+
+    async stageFile(file: GitFile): Promise<boolean> {
+      const targetCwd = file.submodulePath
+        ? safeResolvePath(cwd, file.submodulePath)
+        : cwd
+
+      if (!targetCwd) {
+        logger.error(`Invalid submodule path: ${file.submodulePath}`)
+        return false
+      }
+
+      const relativePath = file.submodulePath
+        ? file.path.replace(`${file.submodulePath}/`, "")
+        : file.path
+
+      if (!safeResolvePath(targetCwd, relativePath)) {
+        logger.error(`Path validation failed for: ${file.path}`)
+        return false
+      }
+
+      try {
+        await $`git -C ${targetCwd} add -- ${relativePath}`.quiet()
+        return true
+      } catch (error) {
+        if (!isExpectedGitError(error)) {
+          logger.error(`Error staging file ${file.path}:`, error)
+        }
+        return false
+      }
+    },
+
+    async unstageFile(file: GitFile): Promise<boolean> {
+      const targetCwd = file.submodulePath
+        ? safeResolvePath(cwd, file.submodulePath)
+        : cwd
+
+      if (!targetCwd) {
+        logger.error(`Invalid submodule path: ${file.submodulePath}`)
+        return false
+      }
+
+      const relativePath = file.submodulePath
+        ? file.path.replace(`${file.submodulePath}/`, "")
+        : file.path
+
+      if (!safeResolvePath(targetCwd, relativePath)) {
+        logger.error(`Path validation failed for: ${file.path}`)
+        return false
+      }
+
+      try {
+        await $`git -C ${targetCwd} restore --staged -- ${relativePath}`.quiet()
+        return true
+      } catch (error) {
+        if (!isExpectedGitError(error)) {
+          logger.error(`Error unstaging file ${file.path}:`, error)
+        }
+        return false
       }
     },
   }

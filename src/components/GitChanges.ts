@@ -13,6 +13,7 @@ import { type Theme, themes, statusColors } from "../themes"
 interface GitChangesOptions {
   files: GitFile[]
   onFileSelect?: (file: GitFile) => void
+  onStageToggle?: (file: GitFile) => void
   selectedPath?: string
   theme?: Theme
 }
@@ -117,6 +118,7 @@ export class GitChangesRenderable extends BoxRenderable {
   private selectedIndex = -1
   private focusedIndex = -1
   private onFileSelect?: (file: GitFile) => void
+  private onStageToggle?: (file: GitFile) => void
   private scrollBox: ScrollBoxRenderable
   private contentBox: BoxRenderable
   private isFocused = false
@@ -134,6 +136,7 @@ export class GitChangesRenderable extends BoxRenderable {
 
     this.renderCtx = ctx
     this.onFileSelect = options.onFileSelect
+    this.onStageToggle = options.onStageToggle
     this.theme = theme
 
     const staged = options.files.filter(f => f.staged)
@@ -350,6 +353,12 @@ export class GitChangesRenderable extends BoxRenderable {
         }
         return true
 
+      case "s":
+        if (this.focusedIndex >= 0 && this.files[this.focusedIndex] && this.onStageToggle) {
+          this.onStageToggle(this.files[this.focusedIndex])
+        }
+        return true
+
       default:
         return false
     }
@@ -417,6 +426,21 @@ export class GitChangesRenderable extends BoxRenderable {
     }
     if (index >= 0 && this.fileItems[index]) {
       this.fileItems[index].setSelected(true)
+      this.fileItems[index].setFocused(true)
+    }
+  }
+
+  setFocusedPath(path: string): void {
+    const index = this.files.findIndex(f => f.path === path)
+    if (index < 0) return
+
+    const prevFocused = this.focusedIndex
+    if (prevFocused >= 0 && this.fileItems[prevFocused]) {
+      this.fileItems[prevFocused].setFocused(false)
+    }
+
+    this.focusedIndex = index
+    if (this.fileItems[index]) {
       this.fileItems[index].setFocused(true)
     }
   }
