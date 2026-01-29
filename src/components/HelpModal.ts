@@ -12,8 +12,6 @@ interface HelpModalOptions {
 }
 
 export class HelpModal extends BoxRenderable {
-  private renderCtx: RenderContext
-  private theme: Theme
   private onClose: () => void
 
   constructor(ctx: RenderContext, options: HelpModalOptions) {
@@ -30,17 +28,15 @@ export class HelpModal extends BoxRenderable {
       backgroundColor: "#00000080",
     })
 
-    this.renderCtx = ctx
-    this.theme = options.theme
     this.onClose = options.onClose
 
-    this.buildUI()
+    this.buildUI(ctx, options.theme)
   }
 
-  private buildUI(): void {
-    const t = this.theme.colors
+  private buildUI(ctx: RenderContext, theme: Theme): void {
+    const t = theme.colors
 
-    const modalBox = new BoxRenderable(this.renderCtx, {
+    const modalBox = new BoxRenderable(ctx, {
       id: "help-modal",
       flexDirection: "column",
       width: 45,
@@ -51,7 +47,7 @@ export class HelpModal extends BoxRenderable {
       padding: 1,
     })
 
-    const title = new TextRenderable(this.renderCtx, {
+    const title = new TextRenderable(ctx, {
       id: "help-title",
       content: "Keyboard Shortcuts",
       fg: t.accent,
@@ -59,7 +55,7 @@ export class HelpModal extends BoxRenderable {
     })
     modalBox.add(title)
 
-    const divider = new TextRenderable(this.renderCtx, {
+    const divider = new TextRenderable(ctx, {
       id: "help-divider",
       content: "─".repeat(41),
       fg: t.border,
@@ -68,32 +64,34 @@ export class HelpModal extends BoxRenderable {
     modalBox.add(divider)
 
     const shortcuts = [
+      { key: "Tab", desc: "Toggle focus (Sidebar/Diff)" },
       { key: "/", desc: "Open command palette" },
       { key: "?", desc: "Show this help" },
-      { key: "j / ↓", desc: "Move down" },
-      { key: "k / ↑", desc: "Move up" },
+      { key: "j / k", desc: "Navigate / Scroll" },
+      { key: "g / G", desc: "First / Last" },
+      { key: "d / u", desc: "Half page down / up (Diff)" },
+      { key: "n / N", desc: "Next / Prev hunk (Diff)" },
       { key: "Enter", desc: "Select file" },
-      { key: "g", desc: "Go to first file" },
-      { key: "G", desc: "Go to last file" },
-      { key: "r", desc: "Refresh files" },
+      { key: "[ / ]", desc: "Resize sidebar" },
       { key: "b", desc: "Toggle sidebar" },
+      { key: "r", desc: "Refresh files" },
       { key: "Ctrl+C", desc: "Quit" },
     ]
 
     shortcuts.forEach((shortcut, index) => {
-      const row = new BoxRenderable(this.renderCtx, {
+      const row = new BoxRenderable(ctx, {
         id: `help-row-${index}`,
         flexDirection: "row",
         height: 1,
       })
 
-      const key = new TextRenderable(this.renderCtx, {
+      const key = new TextRenderable(ctx, {
         id: `help-key-${index}`,
         content: shortcut.key.padEnd(12),
         fg: t.accent,
       })
 
-      const desc = new TextRenderable(this.renderCtx, {
+      const desc = new TextRenderable(ctx, {
         id: `help-desc-${index}`,
         content: shortcut.desc,
         fg: t.text,
@@ -104,7 +102,7 @@ export class HelpModal extends BoxRenderable {
       modalBox.add(row)
     })
 
-    const hint = new TextRenderable(this.renderCtx, {
+    const hint = new TextRenderable(ctx, {
       id: "help-hint",
       content: "Press any key to close",
       fg: t.textMuted,

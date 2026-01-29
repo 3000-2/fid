@@ -6,12 +6,17 @@ import { themeNames, type ThemeName } from "../themes"
 export interface Config {
   theme: ThemeName
   sidebarPosition: "left" | "right"
+  sidebarWidth: number
 }
 
 const DEFAULT_CONFIG: Config = {
   theme: "one-dark",
   sidebarPosition: "left",
+  sidebarWidth: 32,
 }
+
+export const MIN_SIDEBAR_WIDTH = 20
+export const MAX_SIDEBAR_WIDTH = 60
 
 const VALID_SIDEBAR_POSITIONS = ["left", "right"] as const
 
@@ -21,6 +26,10 @@ function isValidTheme(value: unknown): value is ThemeName {
 
 function isValidSidebarPosition(value: unknown): value is "left" | "right" {
   return typeof value === "string" && VALID_SIDEBAR_POSITIONS.includes(value as "left" | "right")
+}
+
+function isValidSidebarWidth(value: unknown): value is number {
+  return typeof value === "number" && value >= MIN_SIDEBAR_WIDTH && value <= MAX_SIDEBAR_WIDTH
 }
 
 function getConfigPath(): string {
@@ -47,6 +56,9 @@ export function loadConfig(): Config {
       sidebarPosition: isValidSidebarPosition(parsed.sidebarPosition)
         ? parsed.sidebarPosition
         : DEFAULT_CONFIG.sidebarPosition,
+      sidebarWidth: isValidSidebarWidth(parsed.sidebarWidth)
+        ? parsed.sidebarWidth
+        : DEFAULT_CONFIG.sidebarWidth,
     }
   } catch {
     return { ...DEFAULT_CONFIG }

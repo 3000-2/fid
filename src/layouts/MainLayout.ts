@@ -13,20 +13,21 @@ import { CommandPalette } from "../components/CommandPalette"
 import { HelpModal } from "../components/HelpModal"
 import type { GitFile, GitService } from "../services/git"
 import { type Theme, themes } from "../themes"
-import { type Config } from "../services/config"
+import { type Config, saveConfig, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } from "../services/config"
 
 interface MainLayoutOptions {
   gitService: GitService
   config: Config
-  sidebarWidth?: number
   minWidthForSidebar?: number
 }
+
+type FocusTarget = "sidebar" | "diff"
 
 interface AppState {
   files: GitFile[]
   selectedFile?: GitFile
   sidebarVisible: boolean
-  sidebarFocused: boolean
+  focusTarget: FocusTarget
   currentBranch: string
   settingsModalOpen: boolean
   commandPaletteOpen: boolean
@@ -67,7 +68,7 @@ export class MainLayout extends BoxRenderable {
 
     this.renderCtx = ctx
     this.gitService = options.gitService
-    this.sidebarWidth = options.sidebarWidth || 30
+    this.sidebarWidth = options.config.sidebarWidth
     this.minWidthForSidebar = options.minWidthForSidebar || 80
     this.config = options.config
     this.theme = theme
@@ -75,7 +76,7 @@ export class MainLayout extends BoxRenderable {
     this.state = {
       files: [],
       sidebarVisible: true,
-      sidebarFocused: true,
+      focusTarget: "sidebar",
       currentBranch: "",
       settingsModalOpen: false,
       commandPaletteOpen: false,
@@ -131,8 +132,7 @@ export class MainLayout extends BoxRenderable {
       files: [],
       cwd: this.gitService.getWorkingDirectory(),
       onFileSelect: (file) => this.handleFileSelect(file),
-      onFocusChange: (panel) => {
-        this.state.sidebarFocused = panel !== null
+      onFocusChange: (_panel) => {
         this.updateStatusBar()
       },
       theme,
@@ -156,6 +156,20 @@ export class MainLayout extends BoxRenderable {
     } else {
       this.container.add(this.mainContent)
       this.container.add(this.sidebar)
+    }
+  }
+
+  resizeSidebar(delta: number): void {
+    const newWidth = Math.max(
+      MIN_SIDEBAR_WIDTH,
+      Math.min(MAX_SIDEBAR_WIDTH, this.sidebarWidth + delta)
+    )
+
+    if (newWidth !== this.sidebarWidth) {
+      this.sidebarWidth = newWidth
+      this.sidebar.setWidth(newWidth)
+      this.config = { ...this.config, sidebarWidth: this.sidebarWidth }
+      saveConfig(this.config)
     }
   }
 
@@ -194,6 +208,10 @@ export class MainLayout extends BoxRenderable {
       this.diffViewer.clear()
     }
 
+    // Auto focus to diff view
+    this.state.focusTarget = "diff"
+    this.sidebar.setDimmed(true)
+
     this.updateStatusBar()
   }
 
@@ -210,22 +228,32 @@ export class MainLayout extends BoxRenderable {
       return this.helpModal.handleKey(key)
     }
 
-    if (this.sidebar && this.state.sidebarFocused) {
+    if (this.state.focusTarget === "sidebar") {
       if (this.sidebar.handleKey(key)) {
+        return true
+      }
+    } else if (this.state.focusTarget === "diff") {
+      if (this.diffViewer.handleKey(key)) {
         return true
       }
     }
 
-    switch (key.name) {
-      case "f":
-        if (!key.ctrl && !key.meta) {
-          this.sidebar.setFocusedPanel("files")
-          return true
-        }
-        break
-    }
-
     return false
+  }
+
+  toggleFocus(): void {
+    if (this.state.focusTarget === "sidebar") {
+      this.state.focusTarget = "diff"
+      this.sidebar.setDimmed(true)
+    } else {
+      this.state.focusTarget = "sidebar"
+      this.sidebar.setDimmed(false)
+    }
+    this.updateStatusBar()
+  }
+
+  isSidebarFocused(): boolean {
+    return this.state.focusTarget === "sidebar"
   }
 
   toggleSettingsModal(): void {
@@ -323,6 +351,9 @@ export class MainLayout extends BoxRenderable {
   private updateStatusBar(): void {
     const parts: string[] = []
 
+    const focusIndicator = this.state.focusTarget === "sidebar" ? "[Sidebar]" : "[Diff]"
+    parts.push(focusIndicator)
+
     if (this.state.currentBranch) {
       parts.push(this.state.currentBranch)
     }
@@ -334,7 +365,11 @@ export class MainLayout extends BoxRenderable {
       parts.push(this.state.selectedFile.path)
     }
 
-    parts.push("[j/k] navigate  [Enter] select  [/] commands  [?] help")
+    if (this.state.focusTarget === "sidebar") {
+      parts.push("[Tab] diff  [j/k] navigate  [/] commands")
+    } else {
+      parts.push("[Tab] sidebar  [j/k] scroll  [n/N] hunk")
+    }
 
     this.statusText.content = parts.join("  |  ")
   }

@@ -341,6 +341,7 @@ export class SetupWizard extends BoxRenderable {
     const config: Config = {
       theme: themeNames[this.themeIndex],
       sidebarPosition: this.sidebarIndex === 0 ? "left" : "right",
+      sidebarWidth: 32,
     }
     this.onComplete(config)
   }

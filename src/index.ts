@@ -70,7 +70,6 @@ async function main() {
   const layout = new MainLayout(renderer, {
     gitService: createGitService(cwd),
     config,
-    sidebarWidth: 32,
     minWidthForSidebar: 80,
   })
 
@@ -116,12 +115,21 @@ async function main() {
       return
     }
 
+    if (key.name === "tab" && !key.ctrl && !key.meta) {
+      layout.toggleFocus()
+      return
+    }
+
     if (layout.handleKey(key)) return
 
     if (key.name === "b" && !key.ctrl && !key.meta) {
       layout.toggleSidebar()
     } else if (key.name === "r" && !key.ctrl && !key.meta) {
       layout.refreshFiles()
+    } else if (key.sequence === "[" && !key.ctrl && !key.meta && layout.isSidebarFocused()) {
+      layout.resizeSidebar(-2)
+    } else if (key.sequence === "]" && !key.ctrl && !key.meta && layout.isSidebarFocused()) {
+      layout.resizeSidebar(2)
     }
   })
 

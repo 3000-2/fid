@@ -104,13 +104,20 @@ export class SettingsModal extends BoxRenderable {
     })
     this.modalBox.add(this.contentBox)
 
-    const hint = new TextRenderable(this.renderCtx, {
-      id: "settings-hint",
-      content: "[ESC] Close  [↑↓/jk] Move  [Enter] Select",
+    const hint1 = new TextRenderable(this.renderCtx, {
+      id: "settings-hint-1",
+      content: "[ESC] Close  [↑↓/jk] Move",
       fg: t.textMuted,
       marginTop: 1,
     })
-    this.modalBox.add(hint)
+    this.modalBox.add(hint1)
+
+    const hint2 = new TextRenderable(this.renderCtx, {
+      id: "settings-hint-2",
+      content: "[Enter] Select",
+      fg: t.textMuted,
+    })
+    this.modalBox.add(hint2)
 
     this.add(this.modalBox)
   }

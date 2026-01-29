@@ -290,7 +290,10 @@ export class CommandPalette extends BoxRenderable {
       return true
     }
 
-    if (key.name === "up") {
+    const isUp = key.name === "up" || (key.name === "k" && key.ctrl)
+    const isDown = key.name === "down" || (key.name === "j" && key.ctrl)
+
+    if (isUp) {
       if (this.cursorIndex > 0) {
         this.cursorIndex--
         this.renderResults()
@@ -298,7 +301,7 @@ export class CommandPalette extends BoxRenderable {
       return true
     }
 
-    if (key.name === "down") {
+    if (isDown) {
       if (this.cursorIndex < this.filteredItems.length - 1 && this.cursorIndex < 9) {
         this.cursorIndex++
         this.renderResults()

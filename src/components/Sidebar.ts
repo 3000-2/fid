@@ -105,4 +105,8 @@ export class SidebarRenderable extends BoxRenderable {
   getWidth(): number {
     return this.sidebarWidth
   }
+
+  setDimmed(dimmed: boolean): void {
+    this.opacity = dimmed ? 0.5 : 1
+  }
 }

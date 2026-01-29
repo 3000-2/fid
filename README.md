@@ -53,19 +53,31 @@ bun run start /path/to/git/repo
 
 ## Keyboard Shortcuts
 
+### General
 | Key | Action |
 |-----|--------|
+| `Tab` | Toggle focus (Sidebar / Diff) |
 | `/` | Open command palette |
 | `?` | Show help |
-| `j` / `↓` | Move down |
-| `k` / `↑` | Move up |
-| `g` | Go to first file |
-| `G` | Go to last file |
-| `Enter` | Select file |
 | `b` | Toggle sidebar |
 | `r` | Refresh files |
-| `Esc` | Close modal |
 | `Ctrl+C` | Exit |
+
+### Sidebar (when focused)
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Navigate files |
+| `g` / `G` | First / Last file |
+| `Enter` | Select file |
+| `[` / `]` | Resize sidebar |
+
+### Diff View (when focused)
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Scroll up / down |
+| `d` / `u` | Half page down / up |
+| `gg` / `G` | Top / Bottom |
+| `n` / `N` | Next / Previous hunk |
 
 ## Command Palette
 
@@ -83,7 +95,8 @@ Settings are stored in `~/.config/fid/config.json`:
 ```json
 {
   "theme": "one-dark",
-  "sidebarPosition": "left"
+  "sidebarPosition": "left",
+  "sidebarWidth": 32
 }
 ```
 

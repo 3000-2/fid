@@ -4,6 +4,7 @@ import {
   DiffRenderable,
   ScrollBoxRenderable,
   type RenderContext,
+  type ParsedKey,
 } from "@opentui/core"
 import { SyntaxStyle } from "@opentui/core"
 import { parseColor } from "@opentui/core"
@@ -45,6 +46,13 @@ export class DiffViewerRenderable extends BoxRenderable {
   private emptyState: BoxRenderable | null = null
   private syntaxStyle: SyntaxStyle
   private theme: Theme
+  private hunkPositions: number[] = []
+  private gPending: boolean = false
+  private gTimeout: ReturnType<typeof setTimeout> | null = null
+
+  private static readonly LINE_SCROLL = 1
+  private static readonly HALF_PAGE_SCROLL = 10
+  private static readonly HUNK_THRESHOLD = 1
 
   constructor(ctx: RenderContext, options: DiffViewerOptions = {}) {
     const theme = options.theme || themes["one-dark"]
@@ -141,6 +149,8 @@ export class DiffViewerRenderable extends BoxRenderable {
       this.emptyState = null
     }
 
+    this.parseHunkPositions(diff)
+
     const resolvedFiletype = filetype || (filePath ? getFiletype(filePath) : "text")
     const t = this.theme.colors
 
@@ -198,10 +208,131 @@ export class DiffViewerRenderable extends BoxRenderable {
       this.scrollBox = null
       this.diffRenderable = null
     }
+    this.hunkPositions = []
     this.showEmptyState()
   }
 
+  private parseHunkPositions(diff: string): void {
+    this.hunkPositions = []
+    const lines = diff.split("\n")
+    let lineNumber = 0
+
+    for (const line of lines) {
+      if (line.startsWith("@@")) {
+        this.hunkPositions.push(lineNumber)
+      }
+      lineNumber++
+    }
+  }
+
+  handleKey(key: ParsedKey): boolean {
+    if (!this.scrollBox) return false
+
+    // G - go to bottom (check before gg)
+    if (key.name === "g" && key.shift && !key.ctrl && !key.meta) {
+      this.gPending = false
+      this.scrollBox.scrollTo(this.scrollBox.scrollHeight)
+      return true
+    }
+
+    // Handle gg (go to top)
+    if (key.name === "g" && !key.shift && !key.ctrl && !key.meta) {
+      if (this.gPending) {
+        this.scrollBox.scrollTo(0)
+        this.gPending = false
+        if (this.gTimeout) {
+          clearTimeout(this.gTimeout)
+          this.gTimeout = null
+        }
+        return true
+      } else {
+        this.gPending = true
+        this.gTimeout = setTimeout(() => {
+          this.gPending = false
+          this.gTimeout = null
+        }, 500)
+        return true
+      }
+    }
+
+    this.gPending = false
+
+    // N - previous hunk (check before n)
+    if (key.name === "n" && key.shift && !key.ctrl && !key.meta) {
+      this.goToPrevHunk()
+      return true
+    }
+
+    // n - next hunk
+    if (key.name === "n" && !key.shift && !key.ctrl && !key.meta) {
+      this.goToNextHunk()
+      return true
+    }
+
+    switch (key.name) {
+      case "j":
+      case "down":
+        this.scrollBox.scrollBy(DiffViewerRenderable.LINE_SCROLL)
+        return true
+
+      case "k":
+      case "up":
+        this.scrollBox.scrollBy(-DiffViewerRenderable.LINE_SCROLL)
+        return true
+
+      case "d":
+        if (!key.ctrl && !key.meta) {
+          this.scrollBox.scrollBy(DiffViewerRenderable.HALF_PAGE_SCROLL)
+          return true
+        }
+        break
+
+      case "u":
+        if (!key.ctrl && !key.meta) {
+          this.scrollBox.scrollBy(-DiffViewerRenderable.HALF_PAGE_SCROLL)
+          return true
+        }
+        break
+    }
+
+    return false
+  }
+
+  private goToNextHunk(): void {
+    if (this.hunkPositions.length === 0 || !this.scrollBox) return
+
+    const currentScroll = this.scrollBox.scrollTop
+    const threshold = DiffViewerRenderable.HUNK_THRESHOLD
+
+    // Find the next hunk after current scroll position (with threshold to avoid stuck on current)
+    for (const pos of this.hunkPositions) {
+      if (pos > currentScroll + threshold) {
+        this.scrollBox.scrollTo(pos)
+        return
+      }
+    }
+  }
+
+  private goToPrevHunk(): void {
+    if (this.hunkPositions.length === 0 || !this.scrollBox) return
+
+    const currentScroll = this.scrollBox.scrollTop
+    const threshold = DiffViewerRenderable.HUNK_THRESHOLD
+
+    // Find the previous hunk before current scroll position (with threshold to avoid stuck on current)
+    for (let i = this.hunkPositions.length - 1; i >= 0; i--) {
+      if (this.hunkPositions[i] < currentScroll - threshold) {
+        this.scrollBox.scrollTo(this.hunkPositions[i])
+        return
+      }
+    }
+  }
+
   destroy(): void {
+    if (this.gTimeout) {
+      clearTimeout(this.gTimeout)
+      this.gTimeout = null
+    }
     this.syntaxStyle.destroy()
     super.destroy()
   }
