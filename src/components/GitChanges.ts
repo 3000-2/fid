@@ -196,8 +196,9 @@ export class GitChangesRenderable extends BoxRenderable {
         const groupLabel = hasSubmodule ? `${groupName} (submodule)` : groupName
         const groupHeader = new TextRenderable(this.renderCtx, {
           id: `${sectionId}-group-${groupName.replace(/\//g, "-")}`,
-          content: `  ${groupLabel}`,
+          content: groupLabel,
           fg: this.theme.colors.textMuted,
+          paddingLeft: 1,
         })
         this.sectionElements.push(groupHeader)
         this.contentBox.add(groupHeader)
@@ -257,7 +258,7 @@ export class GitChangesRenderable extends BoxRenderable {
       const stagedHeader = new TextRenderable(this.renderCtx, {
         id: "section-staged",
         content: `Staged (${stagedFiles.length})`,
-        fg: this.theme.colors.textMuted,
+        fg: this.theme.colors.success,
         paddingLeft: 1,
       })
       this.sectionElements.push(stagedHeader)
@@ -270,7 +271,7 @@ export class GitChangesRenderable extends BoxRenderable {
       const unstagedHeader = new TextRenderable(this.renderCtx, {
         id: "section-unstaged",
         content: `Unstaged (${unstagedFiles.length})`,
-        fg: this.theme.colors.textMuted,
+        fg: this.theme.colors.warning,
         paddingLeft: 1,
         marginTop: stagedFiles.length > 0 ? 1 : 0,
       })
@@ -371,7 +372,13 @@ export class GitChangesRenderable extends BoxRenderable {
 
     for (const el of this.sectionElements) {
       if (el instanceof TextRenderable) {
-        el.fg = RGBA.fromHex(theme.colors.textMuted)
+        if (el.id === "section-staged") {
+          el.fg = RGBA.fromHex(theme.colors.success)
+        } else if (el.id === "section-unstaged") {
+          el.fg = RGBA.fromHex(theme.colors.warning)
+        } else {
+          el.fg = RGBA.fromHex(theme.colors.textMuted)
+        }
       }
     }
 
