@@ -16,6 +16,7 @@ import { Toast } from "../components/Toast"
 import type { GitFile, GitService } from "../services/git"
 import { type Theme, themes } from "../themes"
 import { type Config, saveConfig, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } from "../services/config"
+import { copyToClipboard } from "../utils/clipboard"
 
 interface MainLayoutOptions {
   gitService: GitService
@@ -546,13 +547,13 @@ export class MainLayout extends BoxRenderable {
     this.toast.show(message, duration)
   }
 
-  private copyToClipboard(text: string): void {
-    const proc = Bun.spawn(["pbcopy"], {
-      stdin: "pipe",
-    })
-    proc.stdin.write(text)
-    proc.stdin.end()
-    this.toast.show("Copied to clipboard")
+  private async copyToClipboard(text: string): Promise<void> {
+    try {
+      await copyToClipboard(text)
+      this.toast.show("Copied to clipboard")
+    } catch {
+      this.toast.show("Failed to copy")
+    }
   }
 
   destroy(): void {
