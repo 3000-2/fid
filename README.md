@@ -10,9 +10,11 @@ A terminal UI for viewing git diffs with style.
 
 - **Diff Viewer** - View git diffs with syntax highlighting
 - **Staged/Unstaged Sections** - Easily distinguish between staged and unstaged changes
-- **Multiple Themes** - One Dark, GitHub Dark, Monokai
+- **Monorepo Support** - Group files by project directory (e.g., `apps/web`, `packages/ui`)
+- **Submodule Support** - Track and view changes in git submodules
+- **Multiple Themes** - One Dark, GitHub Dark, Monokai, Catppuccin, Dracula
 - **Setup Wizard** - First-run configuration with live preview
-- **Command Palette** - Quick access to files and commands with `/` key
+- **Command Palette** - Fuzzy search for files and commands with `/` key
 - **Keyboard Navigation** - Vim-style navigation (j/k/g/G) and arrow keys
 - **Auto-Refresh** - Automatically refreshes when terminal gains focus
 
@@ -85,8 +87,9 @@ bun run start /path/to/git/repo
 
 Press `/` to open the command palette. You can:
 
-- **Search files** - Type to filter changed files by name
+- **Fuzzy search** - Type partial matches (e.g., `mlay` finds `MainLayout.ts`)
 - **Browse all files** - Search any project file (enable in Settings)
+- **Scroll results** - Use arrow keys to navigate through all matches
 - **Settings** - Open theme and preferences
 - **Help** - View keyboard shortcuts
 - **Refresh** - Reload changed files
@@ -109,6 +112,8 @@ Settings are stored in `~/.config/fid/config.json`:
 - `one-dark` - Dark blue-gray (default)
 - `github-dark` - Dark with blue accents
 - `monokai` - Classic dark with warm colors
+- `catppuccin` - Soothing pastel theme
+- `dracula` - Dark with vibrant colors
 
 ### Sidebar Position
 

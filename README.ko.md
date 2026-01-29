@@ -10,9 +10,11 @@
 
 - **Diff 뷰어** - 구문 강조가 적용된 git diff 보기
 - **Staged/Unstaged 섹션** - staged와 unstaged 변경사항 구분
-- **다양한 테마** - One Dark, GitHub Dark, Monokai
+- **Monorepo 지원** - 프로젝트 디렉토리별 파일 그룹화 (예: `apps/web`, `packages/ui`)
+- **Submodule 지원** - git submodule 변경사항 추적 및 보기
+- **다양한 테마** - One Dark, GitHub Dark, Monokai, Catppuccin, Dracula
 - **설정 마법사** - 첫 실행 시 라이브 프리뷰와 함께 설정
-- **명령 팔레트** - `/` 키로 파일 및 명령어 빠른 접근
+- **명령 팔레트** - `/` 키로 퍼지 검색, 파일 및 명령어 빠른 접근
 - **키보드 네비게이션** - Vim 스타일 (j/k/g/G) 및 방향키 지원
 - **자동 새로고침** - 터미널 포커스 시 자동으로 새로고침
 
@@ -85,8 +87,9 @@ bun run start /path/to/git/repo
 
 `/` 키를 눌러 명령 팔레트를 엽니다:
 
-- **파일 검색** - 변경된 파일을 이름으로 필터링
+- **퍼지 검색** - 부분 일치 검색 (예: `mlay`로 `MainLayout.ts` 검색)
 - **모든 파일 탐색** - 프로젝트의 모든 파일 검색 (설정에서 활성화)
+- **스크롤 지원** - 방향키로 모든 결과 탐색
 - **Settings** - 테마 및 환경설정 열기
 - **Help** - 키보드 단축키 보기
 - **Refresh** - 변경된 파일 새로고침
@@ -109,6 +112,8 @@ bun run start /path/to/git/repo
 - `one-dark` - 다크 블루 그레이 (기본값)
 - `github-dark` - 블루 액센트의 다크 테마
 - `monokai` - 따뜻한 색상의 클래식 다크 테마
+- `catppuccin` - 부드러운 파스텔 테마
+- `dracula` - 생동감 있는 색상의 다크 테마
 
 ### 사이드바 위치
 

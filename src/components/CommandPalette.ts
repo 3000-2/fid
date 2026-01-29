@@ -1,6 +1,7 @@
 import {
   BoxRenderable,
   TextRenderable,
+  ScrollBoxRenderable,
   type RenderContext,
   type ParsedKey,
 } from "@opentui/core"
@@ -9,6 +10,7 @@ import { resolve } from "path"
 import type { Theme } from "../themes"
 import type { GitFile } from "../services/git"
 import { safeResolvePath } from "../utils/path"
+import { fuzzyFilter } from "../utils/fuzzy"
 
 type CommandAction = "settings" | "help" | "refresh" | "file" | "browse"
 
@@ -43,13 +45,16 @@ export class CommandPalette extends BoxRenderable {
   private cursorIndex: number = 0
   private filteredItems: Command[] = []
   private projectFiles: string[] = []
-  private isLoadingFiles: boolean = false
   private isClosed: boolean = false
+  private loadingId: number = 0
 
   private modalBox!: BoxRenderable
   private inputText!: TextRenderable
+  private scrollBox!: ScrollBoxRenderable
   private resultsBox!: BoxRenderable
   private resultIds: string[] = []
+
+  private static readonly MAX_VISIBLE_RESULTS = 12
 
   private baseCommands: Command[] = [
     { id: "settings", label: "Settings", description: "Change theme and preferences", action: "settings" },
@@ -102,8 +107,10 @@ export class CommandPalette extends BoxRenderable {
   }
 
   private async loadProjectFilesAsync(): Promise<void> {
-    if (this.isLoadingFiles || this.isClosed) return
-    this.isLoadingFiles = true
+    if (this.isClosed) return
+
+    this.loadingId++
+    const currentLoadingId = this.loadingId
 
     try {
       const glob = new Glob("**/*")
@@ -111,7 +118,7 @@ export class CommandPalette extends BoxRenderable {
       const collectedFiles: string[] = []
 
       for await (const file of glob.scan({ cwd: resolvedCwd, onlyFiles: true })) {
-        if (this.isClosed) return
+        if (this.isClosed || this.loadingId !== currentLoadingId) return
         const segments = file.split("/")
         const shouldIgnore = segments.some(seg => CommandPalette.IGNORE_DIRS.has(seg))
         if (!shouldIgnore) {
@@ -120,14 +127,12 @@ export class CommandPalette extends BoxRenderable {
         if (collectedFiles.length >= CommandPalette.MAX_PROJECT_FILES) break
       }
 
-      if (this.isClosed) return
+      if (this.isClosed || this.loadingId !== currentLoadingId) return
       this.projectFiles = collectedFiles
       this.filterItems()
       this.renderResults()
     } catch {
       // Ignore glob scan errors (permission denied, etc.)
-    } finally {
-      this.isLoadingFiles = false
     }
   }
 
@@ -183,12 +188,19 @@ export class CommandPalette extends BoxRenderable {
     })
     this.modalBox.add(divider)
 
+    this.scrollBox = new ScrollBoxRenderable(this.renderCtx, {
+      id: "palette-scroll",
+      flexGrow: 1,
+      maxHeight: CommandPalette.MAX_VISIBLE_RESULTS,
+    })
+
     this.resultsBox = new BoxRenderable(this.renderCtx, {
       id: "palette-results",
       flexDirection: "column",
-      flexGrow: 1,
     })
-    this.modalBox.add(this.resultsBox)
+
+    this.scrollBox.add(this.resultsBox)
+    this.modalBox.add(this.scrollBox)
 
     const hint = new TextRenderable(this.renderCtx, {
       id: "palette-hint",
@@ -208,10 +220,12 @@ export class CommandPalette extends BoxRenderable {
     this.resultIds = []
   }
 
-  private filterItems(): void {
-    const lowerQuery = this.query.toLowerCase().trim()
+  private static readonly MAX_SEARCH_RESULTS = 50
 
-    if (lowerQuery === "") {
+  private filterItems(): void {
+    const query = this.query.trim()
+
+    if (query === "") {
       this.filteredItems = [
         ...this.baseCommands,
         ...this.files.slice(0, 7).map((file) => ({
@@ -240,34 +254,34 @@ export class CommandPalette extends BoxRenderable {
         this.filteredItems.push(...browseFiles)
       }
     } else {
-      const matchedCommands = this.baseCommands.filter(
-        (cmd) =>
-          cmd.label.toLowerCase().includes(lowerQuery) ||
-          cmd.description.toLowerCase().includes(lowerQuery)
+      const matchedCommands = fuzzyFilter(
+        query,
+        this.baseCommands,
+        (cmd) => `${cmd.label} ${cmd.description}`,
+        10
       )
 
-      const matchedGitFiles = this.files
-        .filter((file) => {
-          const fileName = file.path.split("/").pop() || file.path
-          return (
-            fileName.toLowerCase().includes(lowerQuery) ||
-            file.path.toLowerCase().includes(lowerQuery)
-          )
-        })
-        .slice(0, 10)
-        .map((file) => ({
-          id: `file-${file.path}`,
-          label: file.path.split("/").pop() || file.path,
-          description: file.path,
-          action: "file" as CommandAction,
-          file,
-        }))
+      const matchedGitFiles = fuzzyFilter(
+        query,
+        this.files,
+        (file) => file.path,
+        CommandPalette.MAX_SEARCH_RESULTS
+      ).map((file) => ({
+        id: `file-${file.path}`,
+        label: file.path.split("/").pop() || file.path,
+        description: file.path,
+        action: "file" as CommandAction,
+        file,
+      }))
 
       const matchedProjectFiles: Command[] = []
       if (this.browseAllFiles) {
-        const filtered = this.projectFiles
-          .filter((path) => path.toLowerCase().includes(lowerQuery))
-          .slice(0, 10)
+        const filtered = fuzzyFilter(
+          query,
+          this.projectFiles,
+          (path) => path,
+          CommandPalette.MAX_SEARCH_RESULTS
+        )
         for (const path of filtered) {
           const fullPath = safeResolvePath(this.cwd, path)
           if (fullPath) {
@@ -307,10 +321,7 @@ export class CommandPalette extends BoxRenderable {
       return
     }
 
-    const maxResults = 10
-    const displayItems = this.filteredItems.slice(0, maxResults)
-
-    displayItems.forEach((item, index) => {
+    this.filteredItems.forEach((item, index) => {
       const isCursor = index === this.cursorIndex
       const isCommand = !["file", "browse"].includes(item.action)
       const isBrowse = item.action === "browse"
@@ -338,12 +349,11 @@ export class CommandPalette extends BoxRenderable {
           fg: t.info,
         })
         row.add(icon)
-      } else {
-        const file = item.file!
+      } else if (item.file) {
         const status = new TextRenderable(this.renderCtx, {
           id: `palette-status-${index}`,
-          content: file.status + " ",
-          fg: file.staged ? t.success : t.warning,
+          content: item.file.status + " ",
+          fg: item.file.staged ? t.success : t.warning,
         })
         row.add(status)
       }
@@ -370,15 +380,12 @@ export class CommandPalette extends BoxRenderable {
       this.resultIds.push(rowId)
     })
 
-    if (this.filteredItems.length > maxResults) {
-      const moreId = "palette-more"
-      const more = new TextRenderable(this.renderCtx, {
-        id: moreId,
-        content: `  ... and ${this.filteredItems.length - maxResults} more`,
-        fg: t.textMuted,
-      })
-      this.resultsBox.add(more)
-      this.resultIds.push(moreId)
+    this.scrollToCursor()
+  }
+
+  private scrollToCursor(): void {
+    if (this.cursorIndex >= 0) {
+      this.scrollBox.scrollTo(this.cursorIndex)
     }
   }
 
@@ -409,7 +416,7 @@ export class CommandPalette extends BoxRenderable {
     }
 
     if (isDown) {
-      if (this.cursorIndex < this.filteredItems.length - 1 && this.cursorIndex < 9) {
+      if (this.cursorIndex < this.filteredItems.length - 1) {
         this.cursorIndex++
         this.renderResults()
       }
