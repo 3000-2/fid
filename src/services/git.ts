@@ -8,7 +8,7 @@ export interface GitFile {
 
 export interface GitService {
   getChangedFiles(): Promise<GitFile[]>
-  getDiff(filePath: string, staged?: boolean): Promise<string>
+  getDiff(filePath: string, staged?: boolean, isUntracked?: boolean): Promise<string>
   getCurrentBranch(): Promise<string>
   getWorkingDirectory(): string
   isGitRepo(): Promise<boolean>
@@ -99,8 +99,22 @@ export function createGitService(cwd: string): GitService {
       return files.sort((a, b) => a.path.localeCompare(b.path))
     },
 
-    async getDiff(filePath: string, staged = false): Promise<string> {
+    async getDiff(filePath: string, staged = false, isUntracked = false): Promise<string> {
       try {
+        if (isUntracked) {
+          const fullPath = `${cwd}/${filePath}`
+          const file = Bun.file(fullPath)
+          if (!await file.exists()) return ""
+
+          const content = await file.text()
+          const lines = content.split("\n")
+          const lineCount = lines.length
+
+          const header = `diff --git a/${filePath} b/${filePath}\nnew file mode 100644\n--- /dev/null\n+++ b/${filePath}\n@@ -0,0 +1,${lineCount} @@`
+          const body = lines.map(line => `+${line}`).join("\n")
+          return `${header}\n${body}`
+        }
+
         if (staged) {
           return await $`git -C ${cwd} diff --cached -- ${filePath}`.text()
         }

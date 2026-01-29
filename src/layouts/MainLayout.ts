@@ -201,7 +201,8 @@ export class MainLayout extends BoxRenderable {
     this.welcomeText.visible = false
     this.diffViewer.visible = true
 
-    const diff = await this.gitService.getDiff(file.path, file.staged)
+    const isUntracked = file.status === "?"
+    const diff = await this.gitService.getDiff(file.path, file.staged, isUntracked)
 
     if (diff) {
       this.diffViewer.showDiff(diff, file.path)
