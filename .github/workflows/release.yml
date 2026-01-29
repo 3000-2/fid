@@ -3,7 +3,12 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g., v0.2.1)"
+        required: true
 
 permissions:
   contents: write
@@ -14,25 +19,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Get version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "version=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.version.outputs.version }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Get version
-        id: version
-        run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-
-      - name: Wait for release assets
+      - name: Wait for release
         run: sleep 10
 
       - name: Calculate SHA256
         id: sha256
         run: |
+          VERSION="${{ steps.version.outputs.version }}"
           for i in 1 2 3 4 5; do
-            if curl -sfL "https://github.com/3000-2/fid/archive/refs/tags/${{ steps.version.outputs.version }}.tar.gz" -o release.tar.gz; then
+            if curl -sfL "https://github.com/3000-2/fid/archive/refs/tags/${VERSION}.tar.gz" -o release.tar.gz; then
               break
             fi
             echo "Retry $i..."
@@ -58,36 +70,45 @@ jobs:
             exit 0
           fi
 
-          git clone --quiet https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/3000-2/homebrew-tap.git
+          git clone --quiet "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/3000-2/homebrew-tap.git"
           cd homebrew-tap
 
-          cat > Formula/fid.rb << EOF
-class Fid < Formula
-  desc "Terminal UI for viewing git diffs with style"
-  homepage "https://github.com/3000-2/fid"
-  url "https://github.com/3000-2/fid/archive/refs/tags/${VERSION}.tar.gz"
-  sha256 "${SHA256}"
-  license "MIT"
+          cat > Formula/fid.rb << 'FORMULA'
+          class Fid < Formula
+            desc "Terminal UI for viewing git diffs with style"
+            homepage "https://github.com/3000-2/fid"
+          FORMULA
 
-  depends_on "oven-sh/bun/bun"
+          cat >> Formula/fid.rb << FORMULA
+            url "https://github.com/3000-2/fid/archive/refs/tags/${VERSION}.tar.gz"
+            sha256 "${SHA256}"
+          FORMULA
 
-  def install
-    system "bun", "install"
-    libexec.install Dir["*"]
-    (bin/"fid").write <<~EOS
-      #!/bin/bash
-      exec bun run "#{libexec}/src/index.ts" "\$@"
-    EOS
-  end
+          cat >> Formula/fid.rb << 'FORMULA'
+            license "MIT"
 
-  test do
-    system "#{bin}/fid", "--help"
-  end
-end
-EOF
+            depends_on "oven-sh/bun/bun"
+
+            def install
+              system "bun", "install"
+              libexec.install Dir["*"]
+              (bin/"fid").write <<~EOS
+                #!/bin/bash
+                exec bun run "#{libexec}/src/index.ts" "$@"
+              EOS
+            end
+
+            test do
+              assert_match "Error", shell_output("#{bin}/fid --invalid 2>&1", 1)
+            end
+          end
+          FORMULA
+
+          # Remove leading spaces from heredoc
+          sed -i 's/^          //' Formula/fid.rb
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Formula/fid.rb
-          git commit -m "Update fid to ${VERSION}"
+          git diff --cached --quiet || git commit -m "Update fid to ${VERSION}"
           git push
