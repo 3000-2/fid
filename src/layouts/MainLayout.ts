@@ -12,6 +12,7 @@ import { DiffViewerRenderable } from "../components/DiffViewer"
 import { SettingsModal } from "../components/SettingsModal"
 import { CommandPalette } from "../components/CommandPalette"
 import { HelpModal } from "../components/HelpModal"
+import { Toast } from "../components/Toast"
 import type { GitFile, GitService } from "../services/git"
 import { type Theme, themes } from "../themes"
 import { type Config, saveConfig, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } from "../services/config"
@@ -47,6 +48,7 @@ export class MainLayout extends BoxRenderable {
   private settingsModal: SettingsModal | null = null
   private commandPalette: CommandPalette | null = null
   private helpModal: HelpModal | null = null
+  private toast: Toast
 
   private gitService: GitService
   private sidebarWidth: number
@@ -65,6 +67,19 @@ export class MainLayout extends BoxRenderable {
       flexDirection: "column",
       flexGrow: 1,
       backgroundColor: theme.colors.background,
+      onMouseUp: () => {
+        setTimeout(() => {
+          if (ctx.hasSelection) {
+            const selection = ctx.getSelection()
+            if (selection) {
+              const text = selection.getSelectedText()
+              if (text && text.length > 0) {
+                this.copyToClipboard(text)
+              }
+            }
+          }
+        }, 0)
+      },
     })
 
     this.renderCtx = ctx
@@ -138,6 +153,9 @@ export class MainLayout extends BoxRenderable {
       },
       theme,
     })
+
+    this.toast = new Toast(ctx, { theme })
+    this.add(this.toast)
 
     this.buildLayout()
     this.sidebar.setFocusedPanel("files")
@@ -308,6 +326,7 @@ export class MainLayout extends BoxRenderable {
     this.welcomeText.fg = RGBA.fromHex(t.textMuted)
     this.sidebar.setTheme(this.theme)
     this.diffViewer.setTheme(this.theme)
+    this.toast.setTheme(this.theme)
   }
 
   async refreshFiles(): Promise<void> {
@@ -523,12 +542,26 @@ export class MainLayout extends BoxRenderable {
     return this.state.helpModalOpen
   }
 
+  showToast(message: string, duration?: number): void {
+    this.toast.show(message, duration)
+  }
+
+  private copyToClipboard(text: string): void {
+    const proc = Bun.spawn(["pbcopy"], {
+      stdin: "pipe",
+    })
+    proc.stdin.write(text)
+    proc.stdin.end()
+    this.toast.show("Copied to clipboard")
+  }
+
   destroy(): void {
     this.sidebar?.destroy()
     this.diffViewer?.destroy()
     this.settingsModal?.destroy()
     this.commandPalette?.destroy()
     this.helpModal?.destroy()
+    this.toast?.destroy()
     super.destroy()
   }
 }
