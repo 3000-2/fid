@@ -6,6 +6,7 @@ import {
   type ParsedKey,
   RGBA,
 } from "@opentui/core"
+import { realpathSync } from "fs"
 import { SidebarRenderable } from "../components/Sidebar"
 import { DiffViewerRenderable } from "../components/DiffViewer"
 import { SettingsModal } from "../components/SettingsModal"
@@ -208,7 +209,6 @@ export class MainLayout extends BoxRenderable {
       this.diffViewer.clear()
     }
 
-    // Auto focus to diff view
     this.state.focusTarget = "diff"
     this.sidebar.setDimmed(true)
 
@@ -396,7 +396,9 @@ export class MainLayout extends BoxRenderable {
     this.commandPalette = new CommandPalette(this.renderCtx, {
       theme: this.theme,
       files: this.state.files,
-      onCommand: (action, file) => this.handleCommand(action, file),
+      cwd: this.gitService.getWorkingDirectory(),
+      browseAllFiles: this.config.browseAllFiles,
+      onCommand: (action, file, filePath) => this.handleCommand(action, file, filePath),
       onClose: () => this.closeCommandPalette(),
     })
     this.add(this.commandPalette)
@@ -410,7 +412,7 @@ export class MainLayout extends BoxRenderable {
     this.state.commandPaletteOpen = false
   }
 
-  private handleCommand(action: string, file?: GitFile): void {
+  private handleCommand(action: string, file?: GitFile, filePath?: string): void {
     this.closeCommandPalette()
 
     switch (action) {
@@ -428,7 +430,63 @@ export class MainLayout extends BoxRenderable {
           this.handleFileSelect(file)
         }
         break
+      case "browse":
+        if (filePath) {
+          this.handleBrowseFile(filePath)
+        }
+        break
     }
+  }
+
+  private static readonly MAX_BROWSE_FILE_SIZE = 10 * 1024 * 1024 // 10MB
+
+  private async handleBrowseFile(filePath: string): Promise<void> {
+    const cwd = this.gitService.getWorkingDirectory()
+
+    try {
+      const realCwd = realpathSync(cwd)
+      const realPath = realpathSync(filePath)
+      if (!realPath.startsWith(realCwd + "/") && realPath !== realCwd) {
+        this.welcomeText.content = "Access denied: Path outside working directory"
+        this.welcomeText.visible = true
+        this.diffViewer.visible = false
+        return
+      }
+    } catch {
+      this.welcomeText.content = "Failed to resolve file path"
+      this.welcomeText.visible = true
+      this.diffViewer.visible = false
+      return
+    }
+
+    this.welcomeText.visible = false
+    this.diffViewer.visible = true
+
+    try {
+      const file = Bun.file(filePath)
+      if (file.size > MainLayout.MAX_BROWSE_FILE_SIZE) {
+        this.diffViewer.visible = false
+        this.welcomeText.content = "File too large (max 10MB)"
+        this.welcomeText.visible = true
+        return
+      }
+
+      const content = await file.text()
+      const lines = content.split("\n")
+      const lineCount = lines.length
+      const header = `--- a/${filePath}\n+++ b/${filePath}\n@@ -1,${lineCount} +1,${lineCount} @@`
+      const body = lines.map(line => ` ${line}`).join("\n")
+      const fakeDiff = `${header}\n${body}`
+      this.diffViewer.showDiff(fakeDiff, filePath)
+    } catch {
+      this.diffViewer.visible = false
+      this.welcomeText.content = "Failed to read file"
+      this.welcomeText.visible = true
+    }
+
+    this.state.focusTarget = "diff"
+    this.sidebar.setDimmed(true)
+    this.updateStatusBar()
   }
 
   toggleHelpModal(): void {
@@ -466,6 +524,10 @@ export class MainLayout extends BoxRenderable {
 
   destroy(): void {
     this.sidebar?.destroy()
+    this.diffViewer?.destroy()
+    this.settingsModal?.destroy()
+    this.commandPalette?.destroy()
+    this.helpModal?.destroy()
     super.destroy()
   }
 }

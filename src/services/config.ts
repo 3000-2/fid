@@ -7,12 +7,14 @@ export interface Config {
   theme: ThemeName
   sidebarPosition: "left" | "right"
   sidebarWidth: number
+  browseAllFiles: boolean
 }
 
 const DEFAULT_CONFIG: Config = {
   theme: "one-dark",
   sidebarPosition: "left",
   sidebarWidth: 32,
+  browseAllFiles: false,
 }
 
 export const MIN_SIDEBAR_WIDTH = 20
@@ -51,6 +53,10 @@ export function loadConfig(): Config {
     const content = readFileSync(configPath, "utf-8")
     const parsed = JSON.parse(content)
 
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return { ...DEFAULT_CONFIG }
+    }
+
     return {
       theme: isValidTheme(parsed.theme) ? parsed.theme : DEFAULT_CONFIG.theme,
       sidebarPosition: isValidSidebarPosition(parsed.sidebarPosition)
@@ -59,6 +65,9 @@ export function loadConfig(): Config {
       sidebarWidth: isValidSidebarWidth(parsed.sidebarWidth)
         ? parsed.sidebarWidth
         : DEFAULT_CONFIG.sidebarWidth,
+      browseAllFiles: typeof parsed.browseAllFiles === "boolean"
+        ? parsed.browseAllFiles
+        : DEFAULT_CONFIG.browseAllFiles,
     }
   } catch {
     return { ...DEFAULT_CONFIG }

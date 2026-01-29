@@ -4,10 +4,13 @@ import {
   type RenderContext,
   type ParsedKey,
 } from "@opentui/core"
+import { Glob } from "bun"
+import { resolve } from "path"
+import { realpathSync } from "fs"
 import type { Theme } from "../themes"
 import type { GitFile } from "../services/git"
 
-type CommandAction = "settings" | "help" | "refresh" | "file"
+type CommandAction = "settings" | "help" | "refresh" | "file" | "browse"
 
 interface Command {
   id: string
@@ -15,12 +18,15 @@ interface Command {
   description: string
   action: CommandAction
   file?: GitFile
+  filePath?: string
 }
 
 interface CommandPaletteOptions {
   theme: Theme
   files: GitFile[]
-  onCommand: (action: CommandAction, file?: GitFile) => void
+  cwd: string
+  browseAllFiles?: boolean
+  onCommand: (action: CommandAction, file?: GitFile, filePath?: string) => void
   onClose: () => void
 }
 
@@ -28,12 +34,17 @@ export class CommandPalette extends BoxRenderable {
   private renderCtx: RenderContext
   private theme: Theme
   private files: GitFile[]
-  private onCommand: (action: CommandAction, file?: GitFile) => void
+  private cwd: string
+  private browseAllFiles: boolean
+  private onCommand: (action: CommandAction, file?: GitFile, filePath?: string) => void
   private onClose: () => void
 
   private query: string = ""
   private cursorIndex: number = 0
   private filteredItems: Command[] = []
+  private projectFiles: string[] = []
+  private isLoadingFiles: boolean = false
+  private isClosed: boolean = false
 
   private modalBox!: BoxRenderable
   private inputText!: TextRenderable
@@ -45,6 +56,19 @@ export class CommandPalette extends BoxRenderable {
     { id: "help", label: "Help", description: "Show keyboard shortcuts", action: "help" },
     { id: "refresh", label: "Refresh", description: "Reload changed files", action: "refresh" },
   ]
+
+  private static readonly IGNORE_DIRS = new Set([
+    "node_modules",
+    ".git",
+    "dist",
+    "build",
+    ".next",
+    ".cache",
+    "coverage",
+    ".turbo",
+  ])
+
+  private static readonly MAX_PROJECT_FILES = 1000
 
   constructor(ctx: RenderContext, options: CommandPaletteOptions) {
     super(ctx, {
@@ -63,12 +87,63 @@ export class CommandPalette extends BoxRenderable {
     this.renderCtx = ctx
     this.theme = options.theme
     this.files = options.files
+    this.cwd = options.cwd
+    this.browseAllFiles = options.browseAllFiles || false
     this.onCommand = options.onCommand
     this.onClose = options.onClose
+
+    if (this.browseAllFiles) {
+      this.loadProjectFilesAsync()
+    }
 
     this.filterItems()
     this.buildUI()
     this.renderResults()
+  }
+
+  private async loadProjectFilesAsync(): Promise<void> {
+    if (this.isLoadingFiles || this.isClosed) return
+    this.isLoadingFiles = true
+
+    try {
+      const glob = new Glob("**/*")
+      const resolvedCwd = resolve(this.cwd)
+      const collectedFiles: string[] = []
+
+      for await (const file of glob.scan({ cwd: resolvedCwd, onlyFiles: true })) {
+        if (this.isClosed) return
+        const segments = file.split("/")
+        const shouldIgnore = segments.some(seg => CommandPalette.IGNORE_DIRS.has(seg))
+        if (!shouldIgnore) {
+          collectedFiles.push(file)
+        }
+        if (collectedFiles.length >= CommandPalette.MAX_PROJECT_FILES) break
+      }
+
+      if (this.isClosed) return
+      this.projectFiles = collectedFiles
+      this.filterItems()
+      this.renderResults()
+    } catch {
+      // Ignore glob scan errors (permission denied, etc.)
+    } finally {
+      this.isLoadingFiles = false
+    }
+  }
+
+  private isPathSafe(filePath: string): boolean {
+    try {
+      const realCwd = realpathSync(this.cwd)
+      const realPath = realpathSync(filePath)
+      return realPath === realCwd || realPath.startsWith(realCwd + "/")
+    } catch {
+      return false
+    }
+  }
+
+  destroy(): void {
+    this.isClosed = true
+    super.destroy()
   }
 
   private buildUI(): void {
@@ -147,7 +222,6 @@ export class CommandPalette extends BoxRenderable {
     const lowerQuery = this.query.toLowerCase().trim()
 
     if (lowerQuery === "") {
-      // Show commands first, then files
       this.filteredItems = [
         ...this.baseCommands,
         ...this.files.slice(0, 7).map((file) => ({
@@ -158,16 +232,31 @@ export class CommandPalette extends BoxRenderable {
           file,
         })),
       ]
+
+      if (this.browseAllFiles) {
+        const browseFiles = this.projectFiles
+          .slice(0, 5)
+          .map((path) => {
+            const fullPath = resolve(this.cwd, path)
+            return {
+              id: `browse-${path}`,
+              label: path.split("/").pop() || path,
+              description: path,
+              action: "browse" as CommandAction,
+              filePath: fullPath,
+            }
+          })
+          .filter((item) => this.isPathSafe(item.filePath))
+        this.filteredItems.push(...browseFiles)
+      }
     } else {
-      // Filter commands
       const matchedCommands = this.baseCommands.filter(
         (cmd) =>
           cmd.label.toLowerCase().includes(lowerQuery) ||
           cmd.description.toLowerCase().includes(lowerQuery)
       )
 
-      // Filter files
-      const matchedFiles = this.files
+      const matchedGitFiles = this.files
         .filter((file) => {
           const fileName = file.path.split("/").pop() || file.path
           return (
@@ -184,7 +273,24 @@ export class CommandPalette extends BoxRenderable {
           file,
         }))
 
-      this.filteredItems = [...matchedCommands, ...matchedFiles]
+      const matchedProjectFiles = this.browseAllFiles
+        ? this.projectFiles
+            .filter((path) => path.toLowerCase().includes(lowerQuery))
+            .slice(0, 10)
+            .map((path) => {
+              const fullPath = resolve(this.cwd, path)
+              return {
+                id: `browse-${path}`,
+                label: path.split("/").pop() || path,
+                description: path,
+                action: "browse" as CommandAction,
+                filePath: fullPath,
+              }
+            })
+            .filter((item) => this.isPathSafe(item.filePath))
+        : []
+
+      this.filteredItems = [...matchedCommands, ...matchedGitFiles, ...matchedProjectFiles]
     }
 
     if (this.cursorIndex >= this.filteredItems.length) {
@@ -214,7 +320,8 @@ export class CommandPalette extends BoxRenderable {
 
     displayItems.forEach((item, index) => {
       const isCursor = index === this.cursorIndex
-      const isCommand = item.action !== "file"
+      const isCommand = !["file", "browse"].includes(item.action)
+      const isBrowse = item.action === "browse"
 
       const rowId = `palette-result-${index}`
       const row = new BoxRenderable(this.renderCtx, {
@@ -230,6 +337,13 @@ export class CommandPalette extends BoxRenderable {
           id: `palette-icon-${index}`,
           content: item.action === "settings" ? "⚙ " : item.action === "help" ? "? " : "↻ ",
           fg: t.accent,
+        })
+        row.add(icon)
+      } else if (isBrowse) {
+        const icon = new TextRenderable(this.renderCtx, {
+          id: `palette-icon-${index}`,
+          content: "◇ ",
+          fg: t.info,
         })
         row.add(icon)
       } else {
@@ -250,7 +364,7 @@ export class CommandPalette extends BoxRenderable {
       })
       row.add(label)
 
-      if (isCommand) {
+      if (isCommand || isBrowse) {
         const desc = new TextRenderable(this.renderCtx, {
           id: `palette-desc-${index}`,
           content: "  " + item.description,
@@ -282,10 +396,11 @@ export class CommandPalette extends BoxRenderable {
       return true
     }
 
-    if (key.name === "return") {
+    const isEnter = key.name === "return" || key.name === "enter" || key.sequence === "\r" || key.sequence === "\n"
+    if (isEnter) {
       if (this.filteredItems.length > 0 && this.cursorIndex < this.filteredItems.length) {
         const item = this.filteredItems[this.cursorIndex]
-        this.onCommand(item.action, item.file)
+        this.onCommand(item.action, item.file, item.filePath)
       }
       return true
     }

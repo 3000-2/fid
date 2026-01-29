@@ -7,7 +7,7 @@ import {
 import { themes, themeNames, type Theme } from "../themes"
 import { type Config, saveConfig } from "../services/config"
 
-type SettingSection = "theme" | "sidebar"
+type SettingSection = "theme" | "sidebar" | "browseAll"
 
 interface SettingsModalOptions {
   config: Config
@@ -24,6 +24,7 @@ export class SettingsModal extends BoxRenderable {
   private currentSection: SettingSection = "theme"
   private themeIndex: number
   private sidebarIndex: number
+  private browseAllIndex: number
 
   private modalBox!: BoxRenderable
   private contentBox!: BoxRenderable
@@ -51,6 +52,7 @@ export class SettingsModal extends BoxRenderable {
     this.themeIndex = themeNames.indexOf(this.config.theme)
     if (this.themeIndex < 0) this.themeIndex = 0
     this.sidebarIndex = this.config.sidebarPosition === "left" ? 0 : 1
+    this.browseAllIndex = this.config.browseAllFiles ? 0 : 1
 
     this.buildUI()
     this.renderContent()
@@ -229,6 +231,60 @@ export class SettingsModal extends BoxRenderable {
       this.contentBox.add(row)
       this.contentIds.push(rowId)
     })
+
+    const spacer2Id = "modal-spacer-2"
+    const spacer2 = new BoxRenderable(this.renderCtx, {
+      id: spacer2Id,
+      height: 1,
+    })
+    this.contentBox.add(spacer2)
+    this.contentIds.push(spacer2Id)
+
+    const browseAllHeader = new TextRenderable(this.renderCtx, {
+      id: "browseall-header",
+      content: "Browse All Files",
+      fg: this.currentSection === "browseAll" ? t.accent : t.textMuted,
+      marginBottom: 1,
+    })
+    this.contentBox.add(browseAllHeader)
+    this.contentIds.push("browseall-header")
+
+    const browseAllOptions: Array<{ label: string; value: boolean }> = [
+      { label: "Enabled", value: true },
+      { label: "Disabled", value: false },
+    ]
+    browseAllOptions.forEach((opt, index) => {
+      const isSaved = opt.value === this.config.browseAllFiles
+      const isCursor = index === this.browseAllIndex
+      const isActive = this.currentSection === "browseAll" && isCursor
+
+      const rowId = `modal-browseall-${index}`
+      const row = new BoxRenderable(this.renderCtx, {
+        id: rowId,
+        flexDirection: "row",
+        height: 1,
+        paddingLeft: 1,
+        backgroundColor: isActive ? t.selectionBg : "transparent",
+      })
+
+      const bullet = new TextRenderable(this.renderCtx, {
+        id: `modal-browseall-bullet-${index}`,
+        content: isSaved ? "●" : "○",
+        fg: isActive ? t.accent : isSaved ? t.text : t.textMuted,
+        width: 3,
+      })
+
+      const label = new TextRenderable(this.renderCtx, {
+        id: `modal-browseall-label-${index}`,
+        content: opt.label,
+        fg: isActive ? t.accent : isSaved ? t.text : t.textMuted,
+      })
+
+      row.add(bullet)
+      row.add(label)
+      this.contentBox.add(row)
+      this.contentIds.push(rowId)
+    })
   }
 
   private updateModalStyle(): void {
@@ -245,7 +301,7 @@ export class SettingsModal extends BoxRenderable {
 
     const isUp = key.name === "up" || key.name === "k"
     const isDown = key.name === "down" || key.name === "j"
-    const isEnter = key.name === "return"
+    const isEnter = key.name === "return" || key.name === "enter" || key.sequence === "\r" || key.sequence === "\n"
 
     if (this.currentSection === "theme") {
       if (isUp && this.themeIndex > 0) {
@@ -267,7 +323,7 @@ export class SettingsModal extends BoxRenderable {
         this.applyTheme()
         return true
       }
-    } else {
+    } else if (this.currentSection === "sidebar") {
       if (isUp && this.sidebarIndex > 0) {
         this.sidebarIndex--
         this.renderContent()
@@ -283,13 +339,48 @@ export class SettingsModal extends BoxRenderable {
         this.renderContent()
         return true
       }
+      if (isDown && this.sidebarIndex === 1) {
+        this.currentSection = "browseAll"
+        this.renderContent()
+        return true
+      }
       if (isEnter) {
         this.applySidebarPosition()
+        return true
+      }
+    } else if (this.currentSection === "browseAll") {
+      if (isUp && this.browseAllIndex > 0) {
+        this.browseAllIndex--
+        this.renderContent()
+        return true
+      }
+      if (isUp && this.browseAllIndex === 0) {
+        this.currentSection = "sidebar"
+        this.renderContent()
+        return true
+      }
+      if (isDown && this.browseAllIndex < 1) {
+        this.browseAllIndex++
+        this.renderContent()
+        return true
+      }
+      if (isEnter) {
+        this.applyBrowseAllFiles()
         return true
       }
     }
 
     return true
+  }
+
+  private applyBrowseAllFiles(): void {
+    const newValue = this.browseAllIndex === 0
+    if (newValue !== this.config.browseAllFiles) {
+      this.config = { ...this.config, browseAllFiles: newValue }
+      saveConfig(this.config)
+      this.renderContent()
+      this.onConfigChange(this.config)
+    }
   }
 
   private applyTheme(): void {

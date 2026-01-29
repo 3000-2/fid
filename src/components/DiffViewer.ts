@@ -50,9 +50,15 @@ export class DiffViewerRenderable extends BoxRenderable {
   private gPending: boolean = false
   private gTimeout: ReturnType<typeof setTimeout> | null = null
 
+  private fullDiffLines: string[] = []
+  private loadedLineCount: number = 0
+  private currentFilePath?: string
+  private currentFiletype?: string
+
   private static readonly LINE_SCROLL = 1
   private static readonly HALF_PAGE_SCROLL = 10
   private static readonly HUNK_THRESHOLD = 1
+  private static readonly CHUNK_SIZE = 1500
 
   constructor(ctx: RenderContext, options: DiffViewerOptions = {}) {
     const theme = options.theme || themes["one-dark"]
@@ -149,9 +155,47 @@ export class DiffViewerRenderable extends BoxRenderable {
       this.emptyState = null
     }
 
-    this.parseHunkPositions(diff)
+    this.fullDiffLines = diff.split("\n")
+    this.loadedLineCount = Math.min(this.fullDiffLines.length, DiffViewerRenderable.CHUNK_SIZE)
+    this.currentFilePath = filePath
+    this.currentFiletype = filetype
 
-    const resolvedFiletype = filetype || (filePath ? getFiletype(filePath) : "text")
+    const visibleDiff = this.getVisibleDiff()
+    this.parseHunkPositions(visibleDiff)
+    this.renderDiff(visibleDiff)
+  }
+
+  private getVisibleDiff(): string {
+    let diff = this.fullDiffLines.slice(0, this.loadedLineCount).join("\n")
+    if (this.hasMoreLines()) {
+      const remaining = this.fullDiffLines.length - this.loadedLineCount
+      diff += `\n\n    ─── Press [L] to load more (${remaining} lines remaining) ───`
+    }
+    return diff
+  }
+
+  private hasMoreLines(): boolean {
+    return this.loadedLineCount < this.fullDiffLines.length
+  }
+
+  loadMore(): boolean {
+    if (!this.hasMoreLines()) return false
+
+    this.loadedLineCount = Math.min(
+      this.fullDiffLines.length,
+      this.loadedLineCount + DiffViewerRenderable.CHUNK_SIZE
+    )
+
+    const visibleDiff = this.getVisibleDiff()
+    this.parseHunkPositions(visibleDiff)
+    this.renderDiff(visibleDiff)
+    return true
+  }
+
+  private renderDiff(diff: string): void {
+    const lineCount = diff.split("\n").length
+    const disableSyntax = lineCount > DiffViewerRenderable.CHUNK_SIZE
+    const resolvedFiletype = disableSyntax ? "text" : (this.currentFiletype || (this.currentFilePath ? getFiletype(this.currentFilePath) : "text"))
     const t = this.theme.colors
 
     if (this.diffRenderable) {
@@ -209,6 +253,10 @@ export class DiffViewerRenderable extends BoxRenderable {
       this.diffRenderable = null
     }
     this.hunkPositions = []
+    this.fullDiffLines = []
+    this.loadedLineCount = 0
+    this.currentFilePath = undefined
+    this.currentFiletype = undefined
     this.showEmptyState()
   }
 
@@ -266,6 +314,13 @@ export class DiffViewerRenderable extends BoxRenderable {
     // n - next hunk
     if (key.name === "n" && !key.shift && !key.ctrl && !key.meta) {
       this.goToNextHunk()
+      return true
+    }
+
+    if (key.name === "l" && key.shift && !key.ctrl && !key.meta) {
+      if (this.loadMore()) {
+        this.scrollBox.scrollTo(this.scrollBox.scrollHeight)
+      }
       return true
     }
 

@@ -299,7 +299,7 @@ export class SetupWizard extends BoxRenderable {
   handleKey(key: ParsedKey): boolean {
     const isUp = key.name === "up" || key.name === "k"
     const isDown = key.name === "down" || key.name === "j"
-    const isEnter = key.name === "return"
+    const isEnter = key.name === "return" || key.name === "enter" || key.sequence === "\r" || key.sequence === "\n"
 
     if (this.step === "theme") {
       if (isUp && this.themeIndex > 0) {
@@ -338,11 +338,11 @@ export class SetupWizard extends BoxRenderable {
   }
 
   private finish(): void {
-    const config: Config = {
+    this.onComplete({
       theme: themeNames[this.themeIndex],
       sidebarPosition: this.sidebarIndex === 0 ? "left" : "right",
       sidebarWidth: 32,
-    }
-    this.onComplete(config)
+      browseAllFiles: false,
+    })
   }
 }

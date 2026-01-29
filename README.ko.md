@@ -79,12 +79,14 @@ bun run start /path/to/git/repo
 | `d` / `u` | 반 페이지 아래 / 위 |
 | `gg` / `G` | 처음 / 끝 |
 | `n` / `N` | 다음 / 이전 hunk |
+| `L` | 더 많은 라인 로드 (큰 파일용) |
 
 ## 명령 팔레트
 
 `/` 키를 눌러 명령 팔레트를 엽니다:
 
 - **파일 검색** - 변경된 파일을 이름으로 필터링
+- **모든 파일 탐색** - 프로젝트의 모든 파일 검색 (설정에서 활성화)
 - **Settings** - 테마 및 환경설정 열기
 - **Help** - 키보드 단축키 보기
 - **Refresh** - 변경된 파일 새로고침
@@ -97,7 +99,8 @@ bun run start /path/to/git/repo
 {
   "theme": "one-dark",
   "sidebarPosition": "left",
-  "sidebarWidth": 32
+  "sidebarWidth": 32,
+  "browseAllFiles": false
 }
 ```
 
@@ -111,6 +114,10 @@ bun run start /path/to/git/repo
 
 - `left` - 왼쪽에 파일 목록
 - `right` - 오른쪽에 파일 목록
+
+### 모든 파일 탐색
+
+활성화하면 명령 팔레트에서 git 변경사항뿐만 아니라 프로젝트의 모든 파일을 검색할 수 있습니다.
 
 ## 라이선스
 

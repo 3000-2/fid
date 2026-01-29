@@ -75,7 +75,10 @@ async function main() {
 
   renderer.root.add(layout)
 
+  process.stdout.write("\x1b[?1004h")
+
   const shutdown = () => {
+    process.stdout.write("\x1b[?1004l")
     try {
       layout.destroy()
     } catch {
@@ -94,9 +97,12 @@ async function main() {
 
   renderer.setFrameCallback(async () => layout.checkResize())
 
-  // Refresh files when terminal gains focus
+  let focusDebounce: ReturnType<typeof setTimeout> | null = null
   renderer.on("focus", () => {
-    layout.refreshFiles()
+    if (focusDebounce) clearTimeout(focusDebounce)
+    focusDebounce = setTimeout(() => {
+      layout.refreshFiles()
+    }, 100)
   })
 
   renderer.keyInput.on("keypress", (key: ParsedKey) => {

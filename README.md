@@ -79,12 +79,14 @@ bun run start /path/to/git/repo
 | `d` / `u` | Half page down / up |
 | `gg` / `G` | Top / Bottom |
 | `n` / `N` | Next / Previous hunk |
+| `L` | Load more lines (for large files) |
 
 ## Command Palette
 
 Press `/` to open the command palette. You can:
 
 - **Search files** - Type to filter changed files by name
+- **Browse all files** - Search any project file (enable in Settings)
 - **Settings** - Open theme and preferences
 - **Help** - View keyboard shortcuts
 - **Refresh** - Reload changed files
@@ -97,7 +99,8 @@ Settings are stored in `~/.config/fid/config.json`:
 {
   "theme": "one-dark",
   "sidebarPosition": "left",
-  "sidebarWidth": 32
+  "sidebarWidth": 32,
+  "browseAllFiles": false
 }
 ```
 
@@ -111,6 +114,10 @@ Settings are stored in `~/.config/fid/config.json`:
 
 - `left` - Files on the left side
 - `right` - Files on the right side
+
+### Browse All Files
+
+When enabled, the command palette allows searching all project files, not just git changes.
 
 ## License
 
