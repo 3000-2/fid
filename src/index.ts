@@ -94,6 +94,11 @@ async function main() {
 
   renderer.setFrameCallback(async () => layout.checkResize())
 
+  // Refresh files when terminal gains focus
+  renderer.on("focus", () => {
+    layout.refreshFiles()
+  })
+
   renderer.keyInput.on("keypress", (key: ParsedKey) => {
     if (key.name === "c" && key.ctrl) {
       shutdown()

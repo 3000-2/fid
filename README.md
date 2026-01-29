@@ -14,6 +14,7 @@ A terminal UI for viewing git diffs with style.
 - **Setup Wizard** - First-run configuration with live preview
 - **Command Palette** - Quick access to files and commands with `/` key
 - **Keyboard Navigation** - Vim-style navigation (j/k/g/G) and arrow keys
+- **Auto-Refresh** - Automatically refreshes when terminal gains focus
 
 ## Installation
 
