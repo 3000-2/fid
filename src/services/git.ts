@@ -29,7 +29,7 @@ export interface Submodule {
 
 export interface GitService {
   getChangedFiles(): Promise<GitFile[]>
-  getDiff(filePath: string, staged?: boolean, isUntracked?: boolean, submodulePath?: string): Promise<string>
+  getDiff(filePath: string, staged?: boolean, isUntracked?: boolean, submodulePath?: string, fullContext?: boolean): Promise<string>
   getCurrentBranch(): Promise<string>
   getWorkingDirectory(): string
   isGitRepo(): Promise<boolean>
@@ -295,7 +295,7 @@ export function createGitService(cwd: string): GitService {
       return files.sort((a, b) => a.path.localeCompare(b.path))
     },
 
-    async getDiff(filePath: string, staged = false, isUntracked = false, submodulePath?: string): Promise<string> {
+    async getDiff(filePath: string, staged = false, isUntracked = false, submodulePath?: string, fullContext = false): Promise<string> {
       const targetCwd = submodulePath ? safeResolvePath(cwd, submodulePath) : cwd
       if (!targetCwd) {
         logger.error(`Invalid submodule path: ${submodulePath}`)
@@ -332,7 +332,13 @@ export function createGitService(cwd: string): GitService {
         }
 
         if (staged) {
+          if (fullContext) {
+            return await $`git -C ${targetCwd} diff --cached -U99999 -- ${relativePath}`.text()
+          }
           return await $`git -C ${targetCwd} diff --cached -- ${relativePath}`.text()
+        }
+        if (fullContext) {
+          return await $`git -C ${targetCwd} diff -U99999 -- ${relativePath}`.text()
         }
         return await $`git -C ${targetCwd} diff -- ${relativePath}`.text()
       } catch (error) {

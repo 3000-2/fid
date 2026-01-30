@@ -15,7 +15,7 @@ interface DiffViewerOptions {
   filePath?: string
   filetype?: string
   theme?: Theme
-  onRequestFullFile?: (filePath: string) => Promise<string | null>
+  onRequestFullDiff?: (filePath: string) => Promise<string | null>
 }
 
 const FILETYPE_MAP: Record<string, string> = {
@@ -58,8 +58,8 @@ export class DiffViewerRenderable extends BoxRenderable {
 
   private originalDiff: string = ""
   private isFullFileView: boolean = false
-  private fullFileContent: string | null = null
-  private onRequestFullFile?: (filePath: string) => Promise<string | null>
+  private fullDiffContent: string | null = null
+  private onRequestFullDiff?: (filePath: string) => Promise<string | null>
 
   private static readonly LINE_SCROLL = 1
   private static readonly HALF_PAGE_SCROLL = 10
@@ -79,7 +79,7 @@ export class DiffViewerRenderable extends BoxRenderable {
 
     this.renderCtx = ctx
     this.theme = theme
-    this.onRequestFullFile = options.onRequestFullFile
+    this.onRequestFullDiff = options.onRequestFullDiff
 
     this.syntaxStyle = this.createSyntaxStyle()
 
@@ -165,7 +165,7 @@ export class DiffViewerRenderable extends BoxRenderable {
 
     this.originalDiff = diff
     this.isFullFileView = false
-    this.fullFileContent = null
+    this.fullDiffContent = null
 
     this.fullDiffLines = diff.split("\n")
     this.loadedLineCount = Math.min(this.fullDiffLines.length, DiffViewerRenderable.CHUNK_SIZE)
@@ -247,7 +247,7 @@ export class DiffViewerRenderable extends BoxRenderable {
   }
 
   async toggleFullFileView(): Promise<boolean> {
-    if (!this.currentFilePath || !this.onRequestFullFile) return false
+    if (!this.currentFilePath || !this.onRequestFullDiff) return false
 
     if (this.isFullFileView) {
       this.fullDiffLines = this.originalDiff.split("\n")
@@ -260,22 +260,13 @@ export class DiffViewerRenderable extends BoxRenderable {
       return true
     }
 
-    if (!this.fullFileContent) {
-      this.fullFileContent = await this.onRequestFullFile(this.currentFilePath)
+    if (!this.fullDiffContent) {
+      this.fullDiffContent = await this.onRequestFullDiff(this.currentFilePath)
     }
 
-    if (!this.fullFileContent) return false
+    if (!this.fullDiffContent) return false
 
-    const lines = this.fullFileContent.split("\n")
-    if (lines.length > 0 && lines[lines.length - 1] === "") {
-      lines.pop()
-    }
-    const lineCount = lines.length
-    const header = `--- a/${this.currentFilePath}\n+++ b/${this.currentFilePath}\n@@ -1,${lineCount} +1,${lineCount} @@`
-    const body = lines.map(line => ` ${line}`).join("\n")
-    const fullFileDiff = `${header}\n${body}`
-
-    this.fullDiffLines = fullFileDiff.split("\n")
+    this.fullDiffLines = this.fullDiffContent.split("\n")
     this.loadedLineCount = Math.min(this.fullDiffLines.length, DiffViewerRenderable.CHUNK_SIZE)
     this.isFullFileView = true
 
@@ -319,7 +310,7 @@ export class DiffViewerRenderable extends BoxRenderable {
     this.currentFiletype = undefined
     this.originalDiff = ""
     this.isFullFileView = false
-    this.fullFileContent = null
+    this.fullDiffContent = null
     this.showEmptyState()
   }
 

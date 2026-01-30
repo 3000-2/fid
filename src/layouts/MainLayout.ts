@@ -16,7 +16,7 @@ import { type GitFile, type GitService, MAX_FILE_SIZE } from "../services/git"
 import { type Theme, themes } from "../themes"
 import { type Config, saveConfig, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } from "../services/config"
 import { copyToClipboard } from "../utils/clipboard"
-import { validatePathWithinBase, safeResolvePath } from "../utils/path"
+import { validatePathWithinBase } from "../utils/path"
 import { logger } from "../utils/logger"
 
 interface MainLayoutOptions {
@@ -126,7 +126,7 @@ export class MainLayout extends BoxRenderable {
 
     this.diffViewer = new DiffViewerRenderable(ctx, {
       theme,
-      onRequestFullFile: (filePath) => this.readFullFile(filePath),
+      onRequestFullDiff: (filePath) => this.getFullContextDiff(filePath),
     })
     this.diffViewer.visible = false
     this.mainContent.add(this.diffViewer)
@@ -301,24 +301,19 @@ export class MainLayout extends BoxRenderable {
     this.updateStatusBar()
   }
 
-  private async readFullFile(filePath: string): Promise<string | null> {
-    const cwd = this.gitService.getWorkingDirectory()
-    const submodulePath = this.state.selectedFile?.submodulePath
-    const targetCwd = submodulePath ? safeResolvePath(cwd, submodulePath) : cwd
-    if (!targetCwd) return null
+  private async getFullContextDiff(filePath: string): Promise<string | null> {
+    const file = this.state.selectedFile
+    if (!file) return null
 
-    const relativePath = submodulePath ? filePath.replace(`${submodulePath}/`, "") : filePath
-    const fullPath = safeResolvePath(targetCwd, relativePath)
-    if (!fullPath) return null
+    const diff = await this.gitService.getDiff(
+      filePath,
+      file.staged,
+      file.status === "?",
+      file.submodulePath,
+      true
+    )
 
-    try {
-      const file = Bun.file(fullPath)
-      if (!await file.exists()) return null
-      if (file.size > MAX_FILE_SIZE) return null
-      return await file.text()
-    } catch {
-      return null
-    }
+    return diff || null
   }
 
   handleKey(key: ParsedKey): boolean {
