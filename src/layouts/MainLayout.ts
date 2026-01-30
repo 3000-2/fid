@@ -605,8 +605,8 @@ export class MainLayout extends BoxRenderable {
         lines.pop()
       }
       const lineCount = lines.length
-      const header = `--- a/${filePath}\n+++ b/${filePath}\n@@ -1,${lineCount} +1,${lineCount} @@`
-      const body = lines.map(line => ` ${line}`).join("\n")
+      const header = `diff --git a/${filePath} b/${filePath}\nnew file mode 100644\n--- /dev/null\n+++ b/${filePath}\n@@ -0,0 +1,${lineCount} @@`
+      const body = lines.map(line => `+${line}`).join("\n")
       const fakeDiff = `${header}\n${body}`
       this.diffViewer.showDiff(fakeDiff, filePath)
     } catch (error) {
