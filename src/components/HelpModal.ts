@@ -72,7 +72,6 @@ export class HelpModal extends BoxRenderable {
       { key: "d / u", desc: "Half page down / up (Diff)" },
       { key: "n / N", desc: "Next / Prev hunk (Diff)" },
       { key: "o", desc: "Toggle full file view (Diff)" },
-      { key: "L", desc: "Load more lines (Diff)" },
       { key: "s", desc: "Stage/Unstage file (Sidebar)" },
       { key: "Enter", desc: "Select file" },
       { key: "[ / ]", desc: "Resize sidebar" },

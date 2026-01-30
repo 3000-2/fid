@@ -9,6 +9,7 @@ import {
 import { SyntaxStyle } from "@opentui/core"
 import { parseColor } from "@opentui/core"
 import { type Theme, themes } from "../themes"
+import { VirtualScrollManager } from "../utils/virtualScroll"
 
 interface DiffViewerOptions {
   diff?: string
@@ -48,11 +49,11 @@ export class DiffViewerRenderable extends BoxRenderable {
   private syntaxStyle: SyntaxStyle
   private theme: Theme
   private hunkPositions: number[] = []
+  private absoluteHunkPositions: number[] = []
   private gPending: boolean = false
   private gTimeout: ReturnType<typeof setTimeout> | null = null
 
-  private fullDiffLines: string[] = []
-  private loadedLineCount: number = 0
+  private virtualScroll: VirtualScrollManager
   private currentFilePath?: string
   private currentFiletype?: string
 
@@ -64,7 +65,9 @@ export class DiffViewerRenderable extends BoxRenderable {
   private static readonly LINE_SCROLL = 1
   private static readonly HALF_PAGE_SCROLL = 10
   private static readonly HUNK_THRESHOLD = 1
-  private static readonly CHUNK_SIZE = 1500
+  private static readonly VIRTUAL_SCROLL_WINDOW = 1000
+  private static readonly VIRTUAL_SCROLL_THRESHOLD = 200
+  private static readonly VIRTUAL_SCROLL_BUFFER = 300
   private static readonly DOUBLE_KEY_TIMEOUT_MS = 500
 
   constructor(ctx: RenderContext, options: DiffViewerOptions = {}) {
@@ -80,6 +83,12 @@ export class DiffViewerRenderable extends BoxRenderable {
     this.renderCtx = ctx
     this.theme = theme
     this.onRequestFullDiff = options.onRequestFullDiff
+
+    this.virtualScroll = new VirtualScrollManager({
+      windowSize: DiffViewerRenderable.VIRTUAL_SCROLL_WINDOW,
+      bufferThreshold: DiffViewerRenderable.VIRTUAL_SCROLL_THRESHOLD,
+      bufferSize: DiffViewerRenderable.VIRTUAL_SCROLL_BUFFER,
+    })
 
     this.syntaxStyle = this.createSyntaxStyle()
 
@@ -166,11 +175,12 @@ export class DiffViewerRenderable extends BoxRenderable {
     this.originalDiff = diff
     this.isFullFileView = false
     this.fullDiffContent = null
-
-    this.fullDiffLines = diff.split("\n")
-    this.loadedLineCount = Math.min(this.fullDiffLines.length, DiffViewerRenderable.CHUNK_SIZE)
     this.currentFilePath = filePath
     this.currentFiletype = filetype
+
+    const lines = diff.split("\n")
+    this.virtualScroll.setLines(lines)
+    this.parseAbsoluteHunkPositions(lines)
 
     const visibleDiff = this.getVisibleDiff()
     this.parseHunkPositions(visibleDiff)
@@ -178,35 +188,29 @@ export class DiffViewerRenderable extends BoxRenderable {
   }
 
   private getVisibleDiff(): string {
-    let diff = this.fullDiffLines.slice(0, this.loadedLineCount).join("\n")
-    if (this.hasMoreLines()) {
-      const remaining = this.fullDiffLines.length - this.loadedLineCount
-      diff += `\n\n    ─── Press [L] to load more (${remaining} lines remaining) ───`
+    const state = this.virtualScroll.getState()
+
+    if (state.totalLines <= DiffViewerRenderable.VIRTUAL_SCROLL_WINDOW) {
+      return this.virtualScroll.getWindowedContent()
     }
-    return diff
-  }
 
-  private hasMoreLines(): boolean {
-    return this.loadedLineCount < this.fullDiffLines.length
-  }
+    let content = this.virtualScroll.getWindowedContent()
+    const windowInfo = `Lines ${state.windowStart + 1}-${state.windowEnd} of ${state.totalLines}`
 
-  loadMore(): boolean {
-    if (!this.hasMoreLines()) return false
+    if (!this.virtualScroll.isAtStart()) {
+      content = `    ─── ${windowInfo} (scroll up for more) ───\n\n` + content
+    }
 
-    this.loadedLineCount = Math.min(
-      this.fullDiffLines.length,
-      this.loadedLineCount + DiffViewerRenderable.CHUNK_SIZE
-    )
+    if (!this.virtualScroll.isAtEnd()) {
+      content += `\n\n    ─── ${windowInfo} (scroll down for more) ───`
+    }
 
-    const visibleDiff = this.getVisibleDiff()
-    this.parseHunkPositions(visibleDiff)
-    this.renderDiff(visibleDiff)
-    return true
+    return content
   }
 
   private renderDiff(diff: string): void {
-    const lineCount = diff.split("\n").length
-    const disableSyntax = lineCount > DiffViewerRenderable.CHUNK_SIZE
+    const state = this.virtualScroll.getState()
+    const disableSyntax = state.totalLines > DiffViewerRenderable.VIRTUAL_SCROLL_WINDOW
     const resolvedFiletype = disableSyntax ? "text" : (this.currentFiletype || (this.currentFilePath ? getFiletype(this.currentFilePath) : "text"))
     const t = this.theme.colors
 
@@ -246,12 +250,29 @@ export class DiffViewerRenderable extends BoxRenderable {
     }
   }
 
+  private checkVirtualScroll(): void {
+    if (!this.scrollBox) return
+
+    const scrollTop = this.scrollBox.scrollTop
+    const absolutePosition = this.virtualScroll.toAbsolutePosition(scrollTop)
+
+    if (this.virtualScroll.handleScroll(absolutePosition)) {
+      const visibleDiff = this.getVisibleDiff()
+      this.parseHunkPositions(visibleDiff)
+      this.renderDiff(visibleDiff)
+
+      const newRelativePosition = this.virtualScroll.toRelativePosition(absolutePosition)
+      this.scrollBox.scrollTo(Math.max(0, newRelativePosition))
+    }
+  }
+
   async toggleFullFileView(): Promise<boolean> {
     if (!this.currentFilePath || !this.onRequestFullDiff) return false
 
     if (this.isFullFileView) {
-      this.fullDiffLines = this.originalDiff.split("\n")
-      this.loadedLineCount = Math.min(this.fullDiffLines.length, DiffViewerRenderable.CHUNK_SIZE)
+      const lines = this.originalDiff.split("\n")
+      this.virtualScroll.setLines(lines)
+      this.parseAbsoluteHunkPositions(lines)
       this.isFullFileView = false
 
       const visibleDiff = this.getVisibleDiff()
@@ -266,8 +287,9 @@ export class DiffViewerRenderable extends BoxRenderable {
 
     if (!this.fullDiffContent) return false
 
-    this.fullDiffLines = this.fullDiffContent.split("\n")
-    this.loadedLineCount = Math.min(this.fullDiffLines.length, DiffViewerRenderable.CHUNK_SIZE)
+    const lines = this.fullDiffContent.split("\n")
+    this.virtualScroll.setLines(lines)
+    this.parseAbsoluteHunkPositions(lines)
     this.isFullFileView = true
 
     const visibleDiff = this.getVisibleDiff()
@@ -283,6 +305,15 @@ export class DiffViewerRenderable extends BoxRenderable {
 
   isShowingFullFile(): boolean {
     return this.isFullFileView
+  }
+
+  getScrollInfo(): { current: number; total: number } {
+    const state = this.virtualScroll.getState()
+    const scrollTop = this.scrollBox?.scrollTop ?? 0
+    return {
+      current: this.virtualScroll.toAbsolutePosition(scrollTop),
+      total: state.totalLines,
+    }
   }
 
   setTheme(theme: Theme): void {
@@ -304,14 +335,26 @@ export class DiffViewerRenderable extends BoxRenderable {
       this.diffRenderable = null
     }
     this.hunkPositions = []
-    this.fullDiffLines = []
-    this.loadedLineCount = 0
+    this.absoluteHunkPositions = []
+    this.virtualScroll.reset()
     this.currentFilePath = undefined
     this.currentFiletype = undefined
     this.originalDiff = ""
     this.isFullFileView = false
     this.fullDiffContent = null
     this.showEmptyState()
+  }
+
+  private parseAbsoluteHunkPositions(lines: string[]): void {
+    this.absoluteHunkPositions = []
+    let lineNumber = 0
+
+    for (const line of lines) {
+      if (line.startsWith("@@")) {
+        this.absoluteHunkPositions.push(lineNumber)
+      }
+      lineNumber++
+    }
   }
 
   private parseHunkPositions(diff: string): void {
@@ -332,13 +375,13 @@ export class DiffViewerRenderable extends BoxRenderable {
 
     if (key.name === "g" && key.shift && !key.ctrl && !key.meta) {
       this.gPending = false
-      this.scrollBox.scrollTo(this.scrollBox.scrollHeight)
+      this.scrollToAbsolute(this.virtualScroll.getTotalLines() - 1)
       return true
     }
 
     if (key.name === "g" && !key.shift && !key.ctrl && !key.meta) {
       if (this.gPending) {
-        this.scrollBox.scrollTo(0)
+        this.scrollToAbsolute(0)
         this.gPending = false
         if (this.gTimeout) {
           clearTimeout(this.gTimeout)
@@ -367,27 +410,23 @@ export class DiffViewerRenderable extends BoxRenderable {
       return true
     }
 
-    if (key.name === "l" && key.shift && !key.ctrl && !key.meta) {
-      if (this.loadMore()) {
-        this.scrollBox.scrollTo(this.scrollBox.scrollHeight)
-      }
-      return true
-    }
-
     switch (key.name) {
       case "j":
       case "down":
         this.scrollBox.scrollBy(DiffViewerRenderable.LINE_SCROLL)
+        this.checkVirtualScroll()
         return true
 
       case "k":
       case "up":
         this.scrollBox.scrollBy(-DiffViewerRenderable.LINE_SCROLL)
+        this.checkVirtualScroll()
         return true
 
       case "d":
         if (!key.ctrl && !key.meta) {
           this.scrollBox.scrollBy(DiffViewerRenderable.HALF_PAGE_SCROLL)
+          this.checkVirtualScroll()
           return true
         }
         break
@@ -395,6 +434,7 @@ export class DiffViewerRenderable extends BoxRenderable {
       case "u":
         if (!key.ctrl && !key.meta) {
           this.scrollBox.scrollBy(-DiffViewerRenderable.HALF_PAGE_SCROLL)
+          this.checkVirtualScroll()
           return true
         }
         break
@@ -403,29 +443,43 @@ export class DiffViewerRenderable extends BoxRenderable {
     return false
   }
 
-  private goToNextHunk(): void {
-    if (this.hunkPositions.length === 0 || !this.scrollBox) return
+  private scrollToAbsolute(absolutePosition: number): void {
+    const result = this.virtualScroll.scrollToAbsolute(absolutePosition)
 
-    const currentScroll = this.scrollBox.scrollTop
+    if (result.windowChanged) {
+      const visibleDiff = this.getVisibleDiff()
+      this.parseHunkPositions(visibleDiff)
+      this.renderDiff(visibleDiff)
+    }
+
+    if (this.scrollBox) {
+      this.scrollBox.scrollTo(result.relativePosition)
+    }
+  }
+
+  private goToNextHunk(): void {
+    if (this.absoluteHunkPositions.length === 0 || !this.scrollBox) return
+
+    const currentAbsolute = this.virtualScroll.toAbsolutePosition(this.scrollBox.scrollTop)
     const threshold = DiffViewerRenderable.HUNK_THRESHOLD
 
-    for (const pos of this.hunkPositions) {
-      if (pos > currentScroll + threshold) {
-        this.scrollBox.scrollTo(pos)
+    for (const pos of this.absoluteHunkPositions) {
+      if (pos > currentAbsolute + threshold) {
+        this.scrollToAbsolute(pos)
         return
       }
     }
   }
 
   private goToPrevHunk(): void {
-    if (this.hunkPositions.length === 0 || !this.scrollBox) return
+    if (this.absoluteHunkPositions.length === 0 || !this.scrollBox) return
 
-    const currentScroll = this.scrollBox.scrollTop
+    const currentAbsolute = this.virtualScroll.toAbsolutePosition(this.scrollBox.scrollTop)
     const threshold = DiffViewerRenderable.HUNK_THRESHOLD
 
-    for (let i = this.hunkPositions.length - 1; i >= 0; i--) {
-      if (this.hunkPositions[i] < currentScroll - threshold) {
-        this.scrollBox.scrollTo(this.hunkPositions[i])
+    for (let i = this.absoluteHunkPositions.length - 1; i >= 0; i--) {
+      if (this.absoluteHunkPositions[i] < currentAbsolute - threshold) {
+        this.scrollToAbsolute(this.absoluteHunkPositions[i])
         return
       }
     }
