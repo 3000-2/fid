@@ -3,6 +3,7 @@ import { safeResolvePath } from "../utils/path"
 import { logger } from "../utils/logger"
 
 export const MAX_FILE_SIZE = 10 * 1024 * 1024
+export const MAX_COMMIT_MESSAGE_LENGTH = 10000
 
 const VALID_STATUSES = new Set(["M", "A", "D", "R", "C", "U", "?"] as const)
 
@@ -37,6 +38,10 @@ export interface GitService {
   stageFile(file: GitFile): Promise<boolean>
   unstageFile(file: GitFile): Promise<boolean>
   getTrackedFiles(): Promise<string[]>
+  commit(message: string): Promise<{ success: boolean; error?: string }>
+  getStagedCount(): Promise<number>
+  stageAll(): Promise<boolean>
+  unstageAll(): Promise<boolean>
 }
 
 function getFileGroup(filePath: string): string {
@@ -411,6 +416,120 @@ export function createGitService(cwd: string): GitService {
       }
 
       return files
+    },
+
+    async getStagedCount(): Promise<number> {
+      try {
+        const result = await $`git -C ${cwd} diff --cached --name-only`.text()
+        const lines = result.trim().split("\n").filter(line => line.length > 0)
+        return lines.length
+      } catch (error) {
+        if (!isExpectedGitError(error)) {
+          logger.error("Error getting staged count:", error)
+        }
+        return 0
+      }
+    },
+
+    async stageAll(): Promise<boolean> {
+      try {
+        await $`git -C ${cwd} add -A`.quiet()
+
+        const submodules = await this.getSubmodules()
+        for (const submodule of submodules) {
+          const submoduleCwd = safeResolvePath(cwd, submodule.path)
+          if (submoduleCwd) {
+            try {
+              await $`git -C ${submoduleCwd} add -A`.quiet()
+            } catch (subError) {
+              if (!isExpectedGitError(subError)) {
+                logger.error(`Error staging files in submodule ${submodule.name}:`, subError)
+              }
+            }
+          }
+        }
+
+        return true
+      } catch (error) {
+        if (!isExpectedGitError(error)) {
+          logger.error("Error staging all files:", error)
+        }
+        return false
+      }
+    },
+
+    async unstageAll(): Promise<boolean> {
+      try {
+        await $`git -C ${cwd} reset HEAD`.quiet()
+      } catch (error) {
+        if (error instanceof Error && error.message.includes("does not have any commits")) {
+          try {
+            await $`git -C ${cwd} rm --cached -r .`.quiet()
+          } catch {
+            // Ignore - may have no files to unstage
+          }
+        } else if (!isExpectedGitError(error)) {
+          logger.error("Error unstaging all files:", error)
+          return false
+        }
+      }
+
+      const submodules = await this.getSubmodules()
+      for (const submodule of submodules) {
+        const submoduleCwd = safeResolvePath(cwd, submodule.path)
+        if (submoduleCwd) {
+          try {
+            await $`git -C ${submoduleCwd} reset HEAD`.quiet()
+          } catch (subError) {
+            if (subError instanceof Error && subError.message.includes("does not have any commits")) {
+              try {
+                await $`git -C ${submoduleCwd} rm --cached -r .`.quiet()
+              } catch {
+                // Ignore
+              }
+            } else if (!isExpectedGitError(subError)) {
+              logger.error(`Error unstaging files in submodule ${submodule.name}:`, subError)
+            }
+          }
+        }
+      }
+
+      return true
+    },
+
+    async commit(message: string): Promise<{ success: boolean; error?: string }> {
+      const trimmedMessage = message.trim()
+
+      if (!trimmedMessage) {
+        return { success: false, error: "Commit message is required" }
+      }
+
+      if (trimmedMessage.includes("\0")) {
+        return { success: false, error: "Invalid characters in commit message" }
+      }
+
+      if (trimmedMessage.length > MAX_COMMIT_MESSAGE_LENGTH) {
+        return { success: false, error: `Commit message too long (max ${MAX_COMMIT_MESSAGE_LENGTH} chars)` }
+      }
+
+      try {
+        await $`git -C ${cwd} commit -m ${trimmedMessage}`.quiet()
+        return { success: true }
+      } catch (error) {
+        if (error instanceof Error) {
+          const errorMsg = error.message.toLowerCase()
+          if (errorMsg.includes("nothing to commit")) {
+            return { success: false, error: "Nothing to commit" }
+          }
+          if (errorMsg.includes("please tell me who you are")) {
+            return { success: false, error: "Git user not configured" }
+          }
+          logger.error("Commit error:", error)
+          const firstLine = error.message.split("\n")[0].slice(0, 80)
+          return { success: false, error: `Commit failed: ${firstLine}` }
+        }
+        return { success: false, error: "Unknown error" }
+      }
     },
   }
 }

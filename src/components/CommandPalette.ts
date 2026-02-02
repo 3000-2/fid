@@ -11,7 +11,7 @@ import { safeResolvePath } from "../utils/path"
 import { fuzzyFilter } from "../utils/fuzzy"
 import { logger } from "../utils/logger"
 
-type CommandAction = "settings" | "help" | "refresh" | "file" | "browse"
+type CommandAction = "settings" | "help" | "refresh" | "file" | "browse" | "commit" | "stageAll" | "unstageAll"
 
 interface Command {
   id: string
@@ -59,9 +59,12 @@ export class CommandPalette extends BoxRenderable {
   private static readonly MAX_SEARCH_RESULTS = 50
 
   private baseCommands: Command[] = [
-    { id: "settings", label: "Settings", description: "Change theme and preferences", action: "settings" },
     { id: "help", label: "Help", description: "Show keyboard shortcuts", action: "help" },
+    { id: "settings", label: "Settings", description: "Change theme and preferences", action: "settings" },
     { id: "refresh", label: "Refresh", description: "Reload changed files", action: "refresh" },
+    { id: "commit", label: "Commit", description: "Commit staged changes", action: "commit" },
+    { id: "stageAll", label: "Stage All", description: "Stage all changes", action: "stageAll" },
+    { id: "unstageAll", label: "Unstage All", description: "Unstage all changes", action: "unstageAll" },
   ]
 
   constructor(ctx: RenderContext, options: CommandPaletteOptions) {
@@ -316,9 +319,16 @@ export class CommandPalette extends BoxRenderable {
       })
 
       if (isCommand) {
+        let iconChar = "↻ "
+        if (item.action === "settings") iconChar = "⚙ "
+        else if (item.action === "help") iconChar = "? "
+        else if (item.action === "commit") iconChar = "● "
+        else if (item.action === "stageAll") iconChar = "+ "
+        else if (item.action === "unstageAll") iconChar = "- "
+
         const icon = new TextRenderable(this.renderCtx, {
           id: `palette-icon-${index}`,
-          content: item.action === "settings" ? "⚙ " : item.action === "help" ? "? " : "↻ ",
+          content: iconChar,
           fg: t.accent,
         })
         row.add(icon)

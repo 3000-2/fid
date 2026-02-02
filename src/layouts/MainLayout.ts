@@ -11,6 +11,7 @@ import { DiffViewerRenderable } from "../components/DiffViewer"
 import { SettingsModal } from "../components/SettingsModal"
 import { CommandPalette } from "../components/CommandPalette"
 import { HelpModal } from "../components/HelpModal"
+import { CommitModal } from "../components/CommitModal"
 import { Toast } from "../components/Toast"
 import { type GitFile, type GitService, MAX_FILE_SIZE } from "../services/git"
 import { type Theme, themes } from "../themes"
@@ -36,6 +37,7 @@ interface AppState {
   settingsModalOpen: boolean
   commandPaletteOpen: boolean
   helpModalOpen: boolean
+  commitModalOpen: boolean
 }
 
 export class MainLayout extends BoxRenderable {
@@ -50,6 +52,7 @@ export class MainLayout extends BoxRenderable {
   private settingsModal: SettingsModal | null = null
   private commandPalette: CommandPalette | null = null
   private helpModal: HelpModal | null = null
+  private commitModal: CommitModal | null = null
   private toast: Toast
 
   private gitService: GitService
@@ -60,6 +63,8 @@ export class MainLayout extends BoxRenderable {
   private state: AppState
   private lastWidth: number = 0
   private isRefreshing: boolean = false
+  private isCommitting: boolean = false
+  private isStagingAll: boolean = false
 
   constructor(ctx: RenderContext, options: MainLayoutOptions) {
     const theme = themes[options.config.theme]
@@ -99,6 +104,7 @@ export class MainLayout extends BoxRenderable {
       settingsModalOpen: false,
       commandPaletteOpen: false,
       helpModalOpen: false,
+      commitModalOpen: false,
     }
 
     this.container = new BoxRenderable(ctx, {
@@ -329,6 +335,10 @@ export class MainLayout extends BoxRenderable {
       return this.helpModal.handleKey(key)
     }
 
+    if (this.state.commitModalOpen && this.commitModal) {
+      return this.commitModal.handleKey(key)
+    }
+
     if (this.state.focusTarget === "sidebar") {
       if (this.sidebar.handleKey(key)) {
         return true
@@ -548,6 +558,15 @@ export class MainLayout extends BoxRenderable {
       case "refresh":
         this.refreshFiles()
         break
+      case "commit":
+        this.openCommitModal()
+        break
+      case "stageAll":
+        this.handleStageAll()
+        break
+      case "unstageAll":
+        this.handleUnstageAll()
+        break
       case "file":
         if (file) {
           this.handleFileSelect(file)
@@ -646,6 +665,97 @@ export class MainLayout extends BoxRenderable {
     this.state.helpModalOpen = false
   }
 
+  private async openCommitModal(): Promise<void> {
+    const stagedCount = await this.gitService.getStagedCount()
+
+    if (stagedCount === 0) {
+      this.toast.show("No staged changes to commit")
+      return
+    }
+
+    this.state.commitModalOpen = true
+    this.commitModal = new CommitModal(this.renderCtx, {
+      theme: this.theme,
+      stagedCount,
+      onCommit: (message) => this.handleCommit(message),
+      onClose: () => this.closeCommitModal(),
+    })
+    this.add(this.commitModal)
+  }
+
+  private closeCommitModal(): void {
+    if (this.commitModal) {
+      this.remove(this.commitModal.id)
+      this.commitModal = null
+    }
+    this.state.commitModalOpen = false
+  }
+
+  private async handleStageAll(): Promise<void> {
+    if (this.isStagingAll) return
+    this.isStagingAll = true
+
+    try {
+      const unstaged = this.state.files.filter(f => !f.staged)
+      if (unstaged.length === 0) {
+        this.toast.show("No unstaged changes")
+        return
+      }
+
+      const success = await this.gitService.stageAll()
+      if (success) {
+        await this.refreshFiles()
+        this.toast.show(`Staged ${unstaged.length} file${unstaged.length !== 1 ? "s" : ""}`)
+      } else {
+        this.toast.show("Failed to stage files")
+      }
+    } finally {
+      this.isStagingAll = false
+    }
+  }
+
+  private async handleUnstageAll(): Promise<void> {
+    if (this.isStagingAll) return
+    this.isStagingAll = true
+
+    try {
+      const staged = this.state.files.filter(f => f.staged)
+      if (staged.length === 0) {
+        this.toast.show("No staged changes")
+        return
+      }
+
+      const success = await this.gitService.unstageAll()
+      if (success) {
+        await this.refreshFiles()
+        this.toast.show(`Unstaged ${staged.length} file${staged.length !== 1 ? "s" : ""}`)
+      } else {
+        this.toast.show("Failed to unstage files")
+      }
+    } finally {
+      this.isStagingAll = false
+    }
+  }
+
+  private async handleCommit(message: string): Promise<void> {
+    if (this.isCommitting) return
+    this.isCommitting = true
+
+    try {
+      const result = await this.gitService.commit(message)
+
+      if (result.success) {
+        this.closeCommitModal()
+        this.toast.show("Committed successfully")
+        await this.refreshFiles()
+      } else {
+        this.commitModal?.showError(result.error || "Commit failed")
+      }
+    } finally {
+      this.isCommitting = false
+    }
+  }
+
   isCommandPaletteOpen(): boolean {
     return this.state.commandPaletteOpen
   }
@@ -673,6 +783,7 @@ export class MainLayout extends BoxRenderable {
     this.settingsModal?.destroy()
     this.commandPalette?.destroy()
     this.helpModal?.destroy()
+    this.commitModal?.destroy()
     this.toast?.destroy()
     super.destroy()
   }
