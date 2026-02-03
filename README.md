@@ -10,6 +10,10 @@ A terminal UI for viewing git diffs with style.
 
 - **Diff Viewer** - View git diffs with syntax highlighting
 - **Staged/Unstaged Sections** - Easily distinguish between staged and unstaged changes
+- **Stage/Unstage** - Toggle file staging with `s` key
+- **Hunk Operations** - Stage, unstage, or discard individual hunks
+- **Commit** - Commit staged changes directly from the command palette
+- **Full File View** - Toggle between diff and full file view with `o` key
 - **Monorepo Support** - Group files by project directory (e.g., `apps/web`, `packages/ui`)
 - **Submodule Support** - Track and view changes in git submodules
 - **Multiple Themes** - One Dark, GitHub Dark, Monokai, Catppuccin, Dracula
@@ -72,6 +76,7 @@ bun run start /path/to/git/repo
 | `j` / `k` | Navigate files |
 | `g` / `G` | First / Last file |
 | `Enter` | Select file |
+| `s` | Stage / Unstage file |
 | `[` / `]` | Resize sidebar |
 
 ### Diff View (when focused)
@@ -81,6 +86,10 @@ bun run start /path/to/git/repo
 | `d` / `u` | Half page down / up |
 | `gg` / `G` | Top / Bottom |
 | `n` / `N` | Next / Previous hunk |
+| `+` | Stage current hunk |
+| `-` | Unstage current hunk |
+| `x` | Discard current hunk |
+| `o` | Toggle full file view |
 | `L` | Load more lines (for large files) |
 
 ## Command Palette
@@ -90,6 +99,9 @@ Press `/` to open the command palette. You can:
 - **Fuzzy search** - Type partial matches (e.g., `mlay` finds `MainLayout.ts`)
 - **Browse all files** - Search any project file (enable in Settings)
 - **Scroll results** - Use arrow keys to navigate through all matches
+- **Commit** - Commit staged changes with a message
+- **Stage All** - Stage all changed files
+- **Unstage All** - Unstage all staged files
 - **Settings** - Open theme and preferences
 - **Help** - View keyboard shortcuts
 - **Refresh** - Reload changed files

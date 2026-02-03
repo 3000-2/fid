@@ -133,6 +133,9 @@ export class MainLayout extends BoxRenderable {
     this.diffViewer = new DiffViewerRenderable(ctx, {
       theme,
       onRequestFullDiff: (filePath) => this.getFullContextDiff(filePath),
+      onHunkStage: (hunkIndex, patch) => this.handleHunkStage(hunkIndex, patch),
+      onHunkUnstage: (hunkIndex, patch) => this.handleHunkUnstage(hunkIndex, patch),
+      onHunkDiscard: (hunkIndex, patch) => this.handleHunkDiscard(hunkIndex, patch),
     })
     this.diffViewer.visible = false
     this.mainContent.add(this.diffViewer)
@@ -348,7 +351,23 @@ export class MainLayout extends BoxRenderable {
         this.toggleFullFileView()
         return true
       }
+
+      // Hunk actions: + stage, - unstage, x discard
+      if (key.sequence === "+" && !key.ctrl && !key.meta) {
+        this.stageCurrentHunk()
+        return true
+      }
+      if (key.sequence === "-" && !key.ctrl && !key.meta) {
+        this.unstageCurrentHunk()
+        return true
+      }
+      if (key.name === "x" && !key.ctrl && !key.meta && !key.shift) {
+        this.discardCurrentHunk()
+        return true
+      }
+
       if (this.diffViewer.handleKey(key)) {
+        this.updateStatusBar()
         return true
       }
     }
@@ -500,7 +519,13 @@ export class MainLayout extends BoxRenderable {
     if (this.state.focusTarget === "sidebar") {
       parts.push("[Tab] diff  [j/k] navigate  [/] commands")
     } else {
-      parts.push("[Tab] sidebar  [o] full  [n/N] hunk")
+      parts.push("[Tab] sidebar  [n/N] [+] [-] [x]")
+
+      const hunkCount = this.diffViewer.getHunkCount()
+      if (hunkCount > 0) {
+        const currentHunk = this.diffViewer.getCurrentHunkIndex() + 1
+        parts.push(`Hunk ${currentHunk}/${hunkCount}`)
+      }
     }
 
     this.statusText.content = parts.join("  |  ")
@@ -734,6 +759,110 @@ export class MainLayout extends BoxRenderable {
       }
     } finally {
       this.isStagingAll = false
+    }
+  }
+
+  private async stageCurrentHunk(): Promise<void> {
+    const file = this.state.selectedFile
+    if (!file || file.staged) {
+      this.toast.show("Cannot stage: file is already staged")
+      return
+    }
+
+    const hunkIndex = this.diffViewer.getCurrentHunkIndex()
+    const hunk = this.diffViewer.getHunkByIndex(hunkIndex)
+    if (!hunk) {
+      this.toast.show("No hunk selected")
+      return
+    }
+
+    await this.handleHunkStage(hunkIndex, hunk.patch)
+  }
+
+  private async unstageCurrentHunk(): Promise<void> {
+    const file = this.state.selectedFile
+    if (!file || !file.staged) {
+      this.toast.show("Cannot unstage: file is not staged")
+      return
+    }
+
+    const hunkIndex = this.diffViewer.getCurrentHunkIndex()
+    const hunk = this.diffViewer.getHunkByIndex(hunkIndex)
+    if (!hunk) {
+      this.toast.show("No hunk selected")
+      return
+    }
+
+    await this.handleHunkUnstage(hunkIndex, hunk.patch)
+  }
+
+  private async discardCurrentHunk(): Promise<void> {
+    const file = this.state.selectedFile
+    if (!file || file.staged) {
+      this.toast.show("Cannot discard: switch to unstaged view first")
+      return
+    }
+
+    const hunkIndex = this.diffViewer.getCurrentHunkIndex()
+    const hunk = this.diffViewer.getHunkByIndex(hunkIndex)
+    if (!hunk) {
+      this.toast.show("No hunk selected")
+      return
+    }
+
+    await this.handleHunkDiscard(hunkIndex, hunk.patch)
+  }
+
+  private async handleHunkStage(hunkIndex: number, patch: string): Promise<void> {
+    const file = this.state.selectedFile
+    if (!file) return
+
+    const success = await this.gitService.stageHunk(file.path, patch)
+    if (success) {
+      this.toast.show(`Staged hunk ${hunkIndex + 1}`)
+      await this.reloadCurrentFile()
+    } else {
+      this.toast.show("Failed to stage hunk")
+    }
+  }
+
+  private async handleHunkUnstage(hunkIndex: number, patch: string): Promise<void> {
+    const file = this.state.selectedFile
+    if (!file) return
+
+    const success = await this.gitService.unstageHunk(file.path, patch)
+    if (success) {
+      this.toast.show(`Unstaged hunk ${hunkIndex + 1}`)
+      await this.reloadCurrentFile()
+    } else {
+      this.toast.show("Failed to unstage hunk")
+    }
+  }
+
+  private async handleHunkDiscard(hunkIndex: number, patch: string): Promise<void> {
+    const file = this.state.selectedFile
+    if (!file) return
+
+    const success = await this.gitService.discardHunk(file.path, patch)
+    if (success) {
+      this.toast.show(`Discarded hunk ${hunkIndex + 1}`)
+      await this.reloadCurrentFile()
+    } else {
+      this.toast.show("Failed to discard hunk")
+    }
+  }
+
+  private async reloadCurrentFile(): Promise<void> {
+    await this.refreshFiles()
+    const file = this.state.selectedFile
+    if (file) {
+      const updatedFile = this.state.files.find(f => f.path === file.path)
+      if (updatedFile) {
+        await this.handleFileSelect(updatedFile)
+      } else {
+        this.diffViewer.clear()
+        this.state.selectedFile = undefined
+      }
     }
   }
 

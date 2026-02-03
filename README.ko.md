@@ -10,6 +10,10 @@
 
 - **Diff 뷰어** - 구문 강조가 적용된 git diff 보기
 - **Staged/Unstaged 섹션** - staged와 unstaged 변경사항 구분
+- **Stage/Unstage** - `s` 키로 파일 스테이징 토글
+- **Hunk 단위 조작** - 개별 hunk를 stage, unstage, discard
+- **커밋** - 명령 팔레트에서 직접 커밋
+- **전체 파일 보기** - `o` 키로 diff와 전체 파일 뷰 전환
 - **Monorepo 지원** - 프로젝트 디렉토리별 파일 그룹화 (예: `apps/web`, `packages/ui`)
 - **Submodule 지원** - git submodule 변경사항 추적 및 보기
 - **다양한 테마** - One Dark, GitHub Dark, Monokai, Catppuccin, Dracula
@@ -72,6 +76,7 @@ bun run start /path/to/git/repo
 | `j` / `k` | 파일 탐색 |
 | `g` / `G` | 처음 / 마지막 파일 |
 | `Enter` | 파일 선택 |
+| `s` | Stage / Unstage 파일 |
 | `[` / `]` | 사이드바 크기 조절 |
 
 ### Diff 뷰 (포커스 시)
@@ -81,6 +86,10 @@ bun run start /path/to/git/repo
 | `d` / `u` | 반 페이지 아래 / 위 |
 | `gg` / `G` | 처음 / 끝 |
 | `n` / `N` | 다음 / 이전 hunk |
+| `+` | 현재 hunk stage |
+| `-` | 현재 hunk unstage |
+| `x` | 현재 hunk 삭제 (discard) |
+| `o` | 전체 파일 보기 토글 |
 | `L` | 더 많은 라인 로드 (큰 파일용) |
 
 ## 명령 팔레트
@@ -90,6 +99,9 @@ bun run start /path/to/git/repo
 - **퍼지 검색** - 부분 일치 검색 (예: `mlay`로 `MainLayout.ts` 검색)
 - **모든 파일 탐색** - 프로젝트의 모든 파일 검색 (설정에서 활성화)
 - **스크롤 지원** - 방향키로 모든 결과 탐색
+- **Commit** - staged 변경사항 커밋
+- **Stage All** - 모든 변경 파일 stage
+- **Unstage All** - 모든 staged 파일 unstage
 - **Settings** - 테마 및 환경설정 열기
 - **Help** - 키보드 단축키 보기
 - **Refresh** - 변경된 파일 새로고침

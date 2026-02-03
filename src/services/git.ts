@@ -42,6 +42,9 @@ export interface GitService {
   getStagedCount(): Promise<number>
   stageAll(): Promise<boolean>
   unstageAll(): Promise<boolean>
+  stageHunk(filePath: string, hunkPatch: string): Promise<boolean>
+  unstageHunk(filePath: string, hunkPatch: string): Promise<boolean>
+  discardHunk(filePath: string, hunkPatch: string): Promise<boolean>
 }
 
 function getFileGroup(filePath: string): string {
@@ -495,6 +498,51 @@ export function createGitService(cwd: string): GitService {
       }
 
       return true
+    },
+
+    async stageHunk(filePath: string, hunkPatch: string): Promise<boolean> {
+      try {
+        const proc = Bun.spawn(["git", "-C", cwd, "apply", "--cached", "-"], {
+          stdin: "pipe",
+        })
+        proc.stdin.write(hunkPatch)
+        proc.stdin.end()
+        await proc.exited
+        return proc.exitCode === 0
+      } catch (error) {
+        logger.error(`Error staging hunk for ${filePath}:`, error)
+        return false
+      }
+    },
+
+    async unstageHunk(filePath: string, hunkPatch: string): Promise<boolean> {
+      try {
+        const proc = Bun.spawn(["git", "-C", cwd, "apply", "--cached", "-R", "-"], {
+          stdin: "pipe",
+        })
+        proc.stdin.write(hunkPatch)
+        proc.stdin.end()
+        await proc.exited
+        return proc.exitCode === 0
+      } catch (error) {
+        logger.error(`Error unstaging hunk for ${filePath}:`, error)
+        return false
+      }
+    },
+
+    async discardHunk(filePath: string, hunkPatch: string): Promise<boolean> {
+      try {
+        const proc = Bun.spawn(["git", "-C", cwd, "apply", "-R", "-"], {
+          stdin: "pipe",
+        })
+        proc.stdin.write(hunkPatch)
+        proc.stdin.end()
+        await proc.exited
+        return proc.exitCode === 0
+      } catch (error) {
+        logger.error(`Error discarding hunk for ${filePath}:`, error)
+        return false
+      }
     },
 
     async commit(message: string): Promise<{ success: boolean; error?: string }> {
