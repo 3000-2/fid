@@ -12,10 +12,11 @@ import { SettingsModal } from "../components/SettingsModal"
 import { CommandPalette } from "../components/CommandPalette"
 import { HelpModal } from "../components/HelpModal"
 import { CommitModal } from "../components/CommitModal"
+import { GitLogView } from "../components/GitLogView"
 import { Toast } from "../components/Toast"
-import { type GitFile, type GitService, MAX_FILE_SIZE } from "../services/git"
+import { type GitFile, type GitService, MAX_FILE_SIZE, getFileGroup } from "../services/git"
 import { type Theme, themes } from "../themes"
-import { type Config, saveConfig, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } from "../services/config"
+import { type Config, saveConfig, trackCommandUsage, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } from "../services/config"
 import { copyToClipboard } from "../utils/clipboard"
 import { validatePathWithinBase } from "../utils/path"
 import { logger } from "../utils/logger"
@@ -28,6 +29,11 @@ interface MainLayoutOptions {
 
 type FocusTarget = "sidebar" | "diff"
 
+interface CommitViewState {
+  hash: string
+  message: string
+}
+
 interface AppState {
   files: GitFile[]
   selectedFile?: GitFile
@@ -38,6 +44,8 @@ interface AppState {
   commandPaletteOpen: boolean
   helpModalOpen: boolean
   commitModalOpen: boolean
+  gitLogOpen: boolean
+  viewingCommit: CommitViewState | null
 }
 
 export class MainLayout extends BoxRenderable {
@@ -53,6 +61,7 @@ export class MainLayout extends BoxRenderable {
   private commandPalette: CommandPalette | null = null
   private helpModal: HelpModal | null = null
   private commitModal: CommitModal | null = null
+  private gitLogView: GitLogView | null = null
   private toast: Toast
 
   private gitService: GitService
@@ -65,6 +74,7 @@ export class MainLayout extends BoxRenderable {
   private isRefreshing: boolean = false
   private isCommitting: boolean = false
   private isStagingAll: boolean = false
+  private isLoadingLog: boolean = false
 
   constructor(ctx: RenderContext, options: MainLayoutOptions) {
     const theme = themes[options.config.theme]
@@ -105,6 +115,8 @@ export class MainLayout extends BoxRenderable {
       commandPaletteOpen: false,
       helpModalOpen: false,
       commitModalOpen: false,
+      gitLogOpen: false,
+      viewingCommit: null,
     }
 
     this.container = new BoxRenderable(ctx, {
@@ -166,6 +178,7 @@ export class MainLayout extends BoxRenderable {
       onFocusChange: (_panel) => {
         this.updateStatusBar()
       },
+      onExitCommitMode: () => this.exitCommitView(),
       theme,
     })
 
@@ -253,8 +266,6 @@ export class MainLayout extends BoxRenderable {
     return undefined
   }
 
-  // Note: isTogglingStage prevents concurrent toggles while refreshFiles() has its own isRefreshing guard.
-  // Both guards work independently - isTogglingStage covers the full toggle operation including UI updates.
   private async handleStageToggle(file: GitFile): Promise<void> {
     if (this.isTogglingStage) return
     this.isTogglingStage = true
@@ -290,6 +301,11 @@ export class MainLayout extends BoxRenderable {
   }
 
   private async handleFileSelect(file: GitFile): Promise<void> {
+    if (this.state.viewingCommit) {
+      await this.handleCommitFileSelect(file)
+      return
+    }
+
     this.state.selectedFile = file
     this.sidebar.setSelectedPath(file.path)
     this.welcomeText.visible = false
@@ -341,6 +357,10 @@ export class MainLayout extends BoxRenderable {
       return this.commitModal.handleKey(key)
     }
 
+    if (this.state.gitLogOpen && this.gitLogView) {
+      return this.gitLogView.handleKey(key)
+    }
+
     if (this.state.focusTarget === "sidebar") {
       if (this.sidebar.handleKey(key)) {
         return true
@@ -351,7 +371,6 @@ export class MainLayout extends BoxRenderable {
         return true
       }
 
-      // Hunk actions: + stage, - unstage, x discard
       if (key.sequence === "+" && !key.ctrl && !key.meta) {
         this.stageCurrentHunk()
         return true
@@ -554,8 +573,9 @@ export class MainLayout extends BoxRenderable {
       files: this.state.files,
       cwd: this.gitService.getWorkingDirectory(),
       browseAllFiles: this.config.browseAllFiles,
+      commandUsage: this.config.commandUsage,
       getTrackedFiles: () => this.gitService.getTrackedFiles(),
-      onCommand: (action, file, filePath) => this.handleCommand(action, file, filePath),
+      onCommand: (action, file, filePath, commandId) => this.handleCommand(action, file, filePath, commandId),
       onClose: () => this.closeCommandPalette(),
     })
     this.add(this.commandPalette)
@@ -569,8 +589,13 @@ export class MainLayout extends BoxRenderable {
     this.state.commandPaletteOpen = false
   }
 
-  private handleCommand(action: string, file?: GitFile, filePath?: string): void {
+  private handleCommand(action: string, file?: GitFile, filePath?: string, commandId?: string): void {
     this.closeCommandPalette()
+
+    if (commandId) {
+      this.config = trackCommandUsage(this.config, commandId)
+      saveConfig(this.config)
+    }
 
     switch (action) {
       case "settings":
@@ -581,6 +606,9 @@ export class MainLayout extends BoxRenderable {
         break
       case "refresh":
         this.refreshFiles()
+        break
+      case "log":
+        this.openGitLog()
         break
       case "commit":
         this.openCommitModal()
@@ -687,6 +715,139 @@ export class MainLayout extends BoxRenderable {
       this.helpModal = null
     }
     this.state.helpModalOpen = false
+  }
+
+  private static readonly MAX_LOG_COMMITS = 200
+
+  private async openGitLog(): Promise<void> {
+    if (this.isLoadingLog) return
+    this.isLoadingLog = true
+
+    this.state.gitLogOpen = true
+    this.toast.show("Loading commits...")
+
+    try {
+      const commits = await this.gitService.getLog(MainLayout.MAX_LOG_COMMITS)
+
+      if (commits.length === 0) {
+        this.toast.show("No commits found")
+        this.state.gitLogOpen = false
+        return
+      }
+
+      this.gitLogView = new GitLogView(this.renderCtx, {
+        theme: this.theme,
+        commits,
+        onSelectCommit: (hash) => this.handleCommitSelect(hash),
+        onClose: () => this.closeGitLog(),
+      })
+      this.add(this.gitLogView)
+      this.toast.show(`Loaded ${commits.length} commits`)
+    } catch (error) {
+      logger.error("Failed to load git log:", error)
+      this.toast.show("Failed to load commits")
+      this.state.gitLogOpen = false
+    } finally {
+      this.isLoadingLog = false
+    }
+  }
+
+  private closeGitLog(): void {
+    if (this.gitLogView) {
+      this.remove(this.gitLogView.id)
+      this.gitLogView = null
+    }
+    this.state.gitLogOpen = false
+  }
+
+  private async handleCommitSelect(hash: string): Promise<void> {
+    this.closeGitLog()
+    this.toast.show("Loading commit files...")
+
+    const [commitFiles, commitInfo] = await Promise.all([
+      this.gitService.getCommitFiles(hash),
+      this.gitService.getCommitInfo(hash),
+    ])
+
+    if (commitFiles.length === 0) {
+      this.toast.show("No files in this commit")
+      return
+    }
+
+    const message = commitInfo?.message || ""
+
+    const gitFiles: GitFile[] = commitFiles.map(f => ({
+      path: f.path,
+      status: f.status,
+      staged: false,
+      group: getFileGroup(f.path),
+    }))
+
+    this.state.viewingCommit = { hash, message }
+    this.sidebar.setCommitMode({ hash, message }, gitFiles)
+
+    if (gitFiles.length > 0) {
+      await this.handleCommitFileSelect(gitFiles[0])
+    }
+
+    this.state.focusTarget = "sidebar"
+    this.sidebar.setDimmed(false)
+    this.sidebar.setFocusedPanel("files")
+    this.updateStatusBar()
+    this.toast.show(`${commitFiles.length} files in commit`)
+  }
+
+  private isLoadingCommitDiff: boolean = false
+
+  private async handleCommitFileSelect(file: GitFile): Promise<void> {
+    if (!this.state.viewingCommit || this.isLoadingCommitDiff) return
+    this.isLoadingCommitDiff = true
+
+    try {
+      const diff = await this.gitService.getCommitFileDiff(
+        this.state.viewingCommit.hash,
+        file.path
+      )
+
+      if (diff) {
+        this.state.selectedFile = file
+        this.sidebar.setSelectedPath(file.path)
+        this.welcomeText.visible = false
+        this.diffViewer.visible = true
+        this.diffViewer.showDiff(diff, file.path)
+        this.state.focusTarget = "diff"
+        this.sidebar.setDimmed(true)
+        this.updateStatusBar()
+      } else {
+        this.toast.show("Failed to load file diff")
+      }
+    } finally {
+      this.isLoadingCommitDiff = false
+    }
+  }
+
+  private exitCommitView(): void {
+    this.state.viewingCommit = null
+    this.sidebar.setCommitMode(null)
+    this.sidebar.updateFiles(this.state.files)
+
+    this.welcomeText.visible = true
+    this.diffViewer.visible = false
+    this.diffViewer.clear()
+    this.state.selectedFile = undefined
+
+    this.state.focusTarget = "sidebar"
+    this.sidebar.setDimmed(false)
+    this.updateStatusBar()
+    this.toast.show("Back to changes")
+  }
+
+  isGitLogOpen(): boolean {
+    return this.state.gitLogOpen
+  }
+
+  isViewingCommit(): boolean {
+    return this.state.viewingCommit !== null
   }
 
   private async openCommitModal(): Promise<void> {
@@ -912,6 +1073,7 @@ export class MainLayout extends BoxRenderable {
     this.commandPalette?.destroy()
     this.helpModal?.destroy()
     this.commitModal?.destroy()
+    this.gitLogView?.destroy()
     this.toast?.destroy()
     super.destroy()
   }

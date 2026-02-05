@@ -124,6 +124,7 @@ export class GitChangesRenderable extends BoxRenderable {
   private isFocused = false
   private theme: Theme
   private sectionElements: (TextRenderable | BoxRenderable)[] = []
+  private isCommitMode = false
 
   constructor(ctx: RenderContext, options: GitChangesOptions) {
     const theme = options.theme || themes["one-dark"]
@@ -242,13 +243,27 @@ export class GitChangesRenderable extends BoxRenderable {
     if (this.files.length === 0) {
       const emptyMessage = new TextRenderable(this.renderCtx, {
         id: "empty-message",
-        content: "No changes",
+        content: this.isCommitMode ? "No files in commit" : "No changes",
         fg: this.theme.colors.textMuted,
         paddingLeft: 1,
         paddingTop: 1,
       })
       this.sectionElements.push(emptyMessage)
       this.contentBox.add(emptyMessage)
+      return
+    }
+
+    if (this.isCommitMode) {
+      const header = new TextRenderable(this.renderCtx, {
+        id: "section-commit-files",
+        content: `Changed Files (${this.files.length})`,
+        fg: this.theme.colors.info,
+        paddingLeft: 1,
+      })
+      this.sectionElements.push(header)
+      this.contentBox.add(header)
+
+      this.renderGroupedFiles(this.files, 0, "commit")
       return
     }
 
@@ -354,7 +369,7 @@ export class GitChangesRenderable extends BoxRenderable {
         return true
 
       case "s":
-        if (this.focusedIndex >= 0 && this.files[this.focusedIndex] && this.onStageToggle) {
+        if (!this.isCommitMode && this.focusedIndex >= 0 && this.files[this.focusedIndex] && this.onStageToggle) {
           this.onStageToggle(this.files[this.focusedIndex])
         }
         return true
@@ -443,5 +458,9 @@ export class GitChangesRenderable extends BoxRenderable {
     if (this.fileItems[index]) {
       this.fileItems[index].setFocused(true)
     }
+  }
+
+  setCommitMode(mode: boolean): void {
+    this.isCommitMode = mode
   }
 }

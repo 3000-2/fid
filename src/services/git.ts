@@ -1,10 +1,15 @@
 import { $ } from "bun"
 import { safeResolvePath } from "../utils/path"
 import { logger } from "../utils/logger"
+import { parseGitLogOutput } from "../utils/gitGraph"
 
 export const MAX_FILE_SIZE = 10 * 1024 * 1024
 export const MAX_COMMIT_MESSAGE_LENGTH = 10000
 const BINARY_CHECK_SIZE = 8192
+const MIN_LOG_LIMIT = 1
+const MAX_LOG_LIMIT = 1000
+const MIN_HASH_LENGTH = 4
+const MAX_HASH_LENGTH = 40
 
 const VALID_STATUSES = new Set(["M", "A", "D", "R", "C", "U", "?"] as const)
 
@@ -38,6 +43,20 @@ export interface Submodule {
   path: string
 }
 
+export interface GitCommitInfo {
+  hash: string
+  refs: string[]
+  message: string
+  author: string
+  relativeDate: string
+  graphChars: string
+}
+
+export interface CommitFile {
+  path: string
+  status: GitStatus
+}
+
 export interface GitService {
   getChangedFiles(): Promise<GitFile[]>
   getDiff(filePath: string, staged?: boolean, status?: GitStatus, submodulePath?: string, fullContext?: boolean): Promise<string>
@@ -55,9 +74,14 @@ export interface GitService {
   stageHunk(filePath: string, hunkPatch: string): Promise<boolean>
   unstageHunk(filePath: string, hunkPatch: string): Promise<boolean>
   discardHunk(filePath: string, hunkPatch: string): Promise<boolean>
+  getLog(limit?: number): Promise<GitCommitInfo[]>
+  getCommitInfo(hash: string): Promise<GitCommitInfo | null>
+  getCommitDiff(hash: string): Promise<string>
+  getCommitFiles(hash: string): Promise<CommitFile[]>
+  getCommitFileDiff(hash: string, filePath: string): Promise<string>
 }
 
-function getFileGroup(filePath: string): string {
+export function getFileGroup(filePath: string): string {
   const parts = filePath.split("/")
   if (parts.length <= 1) return ""
   if (parts.length === 2) return parts[0]
@@ -618,6 +642,132 @@ export function createGitService(cwd: string): GitService {
           return { success: false, error: `Commit failed: ${firstLine}` }
         }
         return { success: false, error: "Unknown error" }
+      }
+    },
+
+    async getLog(limit = 100): Promise<GitCommitInfo[]> {
+      const safeLimit = Math.max(MIN_LOG_LIMIT, Math.min(MAX_LOG_LIMIT, Math.floor(limit)))
+      try {
+        const result = await $`git -C ${cwd} log --graph --format="%h|%D|%s|%an|%ar" --all -n ${safeLimit}`.text()
+        return parseGitLogOutput(result)
+      } catch (error) {
+        if (!isExpectedGitError(error)) {
+          logger.error("Error getting git log:", error)
+        }
+        return []
+      }
+    },
+
+    async getCommitInfo(hash: string): Promise<GitCommitInfo | null> {
+      const safeHash = hash.replace(/[^a-f0-9]/gi, "")
+      if (safeHash.length < MIN_HASH_LENGTH || safeHash.length > MAX_HASH_LENGTH) {
+        logger.error(`Invalid commit hash: ${hash}`)
+        return null
+      }
+
+      try {
+        const result = await $`git -C ${cwd} log --format="%h|%D|%s|%an|%ar" -n 1 ${safeHash}`.text()
+        const line = result.trim()
+        if (!line) return null
+
+        const parts = line.split("|")
+        if (parts.length < 4) return null
+
+        const commitHash = parts[0].trim()
+        const refsStr = parts[1].trim()
+        const message = parts[2].trim()
+        const author = parts[3].trim()
+        const relativeDate = parts.slice(4).join("|").trim()
+
+        const refs = refsStr
+          ? refsStr.split(",").map(r => r.trim()).filter(r => r.length > 0)
+          : []
+
+        return {
+          hash: commitHash,
+          refs,
+          message,
+          author,
+          relativeDate,
+          graphChars: "",
+        }
+      } catch (error) {
+        if (!isExpectedGitError(error)) {
+          logger.error(`Error getting commit info for ${safeHash}:`, error)
+        }
+        return null
+      }
+    },
+
+    async getCommitDiff(hash: string): Promise<string> {
+      const safeHash = hash.replace(/[^a-f0-9]/gi, "")
+      if (safeHash.length < MIN_HASH_LENGTH || safeHash.length > MAX_HASH_LENGTH) {
+        logger.error(`Invalid commit hash: ${hash}`)
+        return ""
+      }
+
+      try {
+        const result = await $`git -C ${cwd} show ${safeHash}`.text()
+        return result
+      } catch (error) {
+        if (!isExpectedGitError(error)) {
+          logger.error(`Error getting diff for commit ${safeHash}:`, error)
+        }
+        return ""
+      }
+    },
+
+    async getCommitFiles(hash: string): Promise<CommitFile[]> {
+      const safeHash = hash.replace(/[^a-f0-9]/gi, "")
+      if (safeHash.length < MIN_HASH_LENGTH || safeHash.length > MAX_HASH_LENGTH) {
+        logger.error(`Invalid commit hash: ${hash}`)
+        return []
+      }
+
+      try {
+        const result = await $`git -C ${cwd} diff-tree --no-commit-id --name-status -r ${safeHash}`.text()
+        const files: CommitFile[] = []
+
+        for (const line of result.trim().split("\n")) {
+          if (!line) continue
+          const [statusRaw, ...pathParts] = line.split("\t")
+          const path = pathParts.join("\t")
+          const status = parseGitStatus(statusRaw)
+
+          if (status && path) {
+            files.push({ path, status })
+          }
+        }
+
+        return files.sort((a, b) => a.path.localeCompare(b.path))
+      } catch (error) {
+        if (!isExpectedGitError(error)) {
+          logger.error(`Error getting files for commit ${safeHash}:`, error)
+        }
+        return []
+      }
+    },
+
+    async getCommitFileDiff(hash: string, filePath: string): Promise<string> {
+      const safeHash = hash.replace(/[^a-f0-9]/gi, "")
+      if (safeHash.length < MIN_HASH_LENGTH || safeHash.length > MAX_HASH_LENGTH) {
+        logger.error(`Invalid commit hash: ${hash}`)
+        return ""
+      }
+
+      if (!safeResolvePath(cwd, filePath)) {
+        logger.error(`Path validation failed for: ${filePath}`)
+        return ""
+      }
+
+      try {
+        const result = await $`git -C ${cwd} show ${safeHash} -- ${filePath}`.text()
+        return result
+      } catch (error) {
+        if (!isExpectedGitError(error)) {
+          logger.error(`Error getting diff for ${filePath} in commit ${safeHash}:`, error)
+        }
+        return ""
       }
     },
   }

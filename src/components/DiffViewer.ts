@@ -291,9 +291,7 @@ export class DiffViewerRenderable extends BoxRenderable {
     }
   }
 
-  private handleMouseClick(_event: { x: number; y: number }): void {
-    // Reserved for future mouse interactions
-  }
+  private handleMouseClick(_event: { x: number; y: number }): void {}
 
   private getVisibleDiff(): string {
     const state = this.virtualScroll.getState()

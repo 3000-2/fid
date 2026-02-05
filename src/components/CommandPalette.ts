@@ -11,7 +11,7 @@ import { safeResolvePath } from "../utils/path"
 import { fuzzyFilter } from "../utils/fuzzy"
 import { logger } from "../utils/logger"
 
-type CommandAction = "settings" | "help" | "refresh" | "file" | "browse" | "commit" | "stageAll" | "unstageAll"
+type CommandAction = "settings" | "help" | "refresh" | "file" | "browse" | "commit" | "stageAll" | "unstageAll" | "log"
 
 interface Command {
   id: string
@@ -27,8 +27,9 @@ interface CommandPaletteOptions {
   files: GitFile[]
   cwd: string
   browseAllFiles?: boolean
+  commandUsage?: Record<string, number>
   getTrackedFiles?: () => Promise<string[]>
-  onCommand: (action: CommandAction, file?: GitFile, filePath?: string) => void
+  onCommand: (action: CommandAction, file?: GitFile, filePath?: string, commandId?: string) => void
   onClose: () => void
 }
 
@@ -38,8 +39,9 @@ export class CommandPalette extends BoxRenderable {
   private files: GitFile[]
   private cwd: string
   private browseAllFiles: boolean
+  private commandUsage: Record<string, number>
   private getTrackedFiles?: () => Promise<string[]>
-  private onCommand: (action: CommandAction, file?: GitFile, filePath?: string) => void
+  private onCommand: (action: CommandAction, file?: GitFile, filePath?: string, commandId?: string) => void
   private onClose: () => void
 
   private query: string = ""
@@ -62,6 +64,7 @@ export class CommandPalette extends BoxRenderable {
     { id: "help", label: "Help", description: "Show keyboard shortcuts", action: "help" },
     { id: "settings", label: "Settings", description: "Change theme and preferences", action: "settings" },
     { id: "refresh", label: "Refresh", description: "Reload changed files", action: "refresh" },
+    { id: "log", label: "Log", description: "View commit history with graph", action: "log" },
     { id: "commit", label: "Commit", description: "Commit staged changes", action: "commit" },
     { id: "stageAll", label: "Stage All", description: "Stage all changes", action: "stageAll" },
     { id: "unstageAll", label: "Unstage All", description: "Unstage all changes", action: "unstageAll" },
@@ -86,6 +89,7 @@ export class CommandPalette extends BoxRenderable {
     this.files = options.files
     this.cwd = options.cwd
     this.browseAllFiles = options.browseAllFiles || false
+    this.commandUsage = options.commandUsage || {}
     this.getTrackedFiles = options.getTrackedFiles
     this.onCommand = options.onCommand
     this.onClose = options.onClose
@@ -205,12 +209,34 @@ export class CommandPalette extends BoxRenderable {
     this.resultIds = []
   }
 
+  private getSortedCommands(): Command[] {
+    const used: Command[] = []
+    const unused: Command[] = []
+
+    for (const cmd of this.baseCommands) {
+      const count = this.commandUsage[cmd.id] || 0
+      if (count > 0) {
+        used.push(cmd)
+      } else {
+        unused.push(cmd)
+      }
+    }
+
+    used.sort((a, b) => {
+      const countA = this.commandUsage[a.id] || 0
+      const countB = this.commandUsage[b.id] || 0
+      return countB - countA
+    })
+
+    return [...used, ...unused]
+  }
+
   private filterItems(): void {
     const query = this.query.trim()
 
     if (query === "") {
       this.filteredItems = [
-        ...this.baseCommands,
+        ...this.getSortedCommands(),
         ...this.files.slice(0, 7).map((file) => ({
           id: `file-${file.path}`,
           label: file.path.split("/").pop() || file.path,
@@ -322,6 +348,7 @@ export class CommandPalette extends BoxRenderable {
         let iconChar = "↻ "
         if (item.action === "settings") iconChar = "⚙ "
         else if (item.action === "help") iconChar = "? "
+        else if (item.action === "log") iconChar = "◆ "
         else if (item.action === "commit") iconChar = "● "
         else if (item.action === "stageAll") iconChar = "+ "
         else if (item.action === "unstageAll") iconChar = "- "
@@ -389,7 +416,8 @@ export class CommandPalette extends BoxRenderable {
     if (isEnter) {
       if (this.filteredItems.length > 0 && this.cursorIndex < this.filteredItems.length) {
         const item = this.filteredItems[this.cursorIndex]
-        this.onCommand(item.action, item.file, item.filePath)
+        const isBaseCommand = this.baseCommands.some(c => c.id === item.id)
+        this.onCommand(item.action, item.file, item.filePath, isBaseCommand ? item.id : undefined)
       }
       return true
     }
