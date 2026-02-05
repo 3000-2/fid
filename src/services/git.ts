@@ -384,13 +384,6 @@ export function createGitService(cwd: string): GitService {
           }
         }
 
-        if (status === "A" && staged) {
-          if (fullContext) {
-            return await $`git -C ${targetCwd} diff --cached -U99999 -- ${relativePath}`.text()
-          }
-          return await $`git -C ${targetCwd} diff --cached -- ${relativePath}`.text()
-        }
-
         if (staged) {
           if (fullContext) {
             return await $`git -C ${targetCwd} diff --cached -U99999 -- ${relativePath}`.text()
@@ -520,9 +513,7 @@ export function createGitService(cwd: string): GitService {
         if (error instanceof Error && error.message.includes("does not have any commits")) {
           try {
             await $`git -C ${cwd} rm --cached -r .`.quiet()
-          } catch {
-            // Ignore - may have no files to unstage
-          }
+          } catch {}
         } else if (!isExpectedGitError(error)) {
           logger.error("Error unstaging all files:", error)
           return false
@@ -539,9 +530,7 @@ export function createGitService(cwd: string): GitService {
             if (subError instanceof Error && subError.message.includes("does not have any commits")) {
               try {
                 await $`git -C ${submoduleCwd} rm --cached -r .`.quiet()
-              } catch {
-                // Ignore
-              }
+              } catch {}
             } else if (!isExpectedGitError(subError)) {
               logger.error(`Error unstaging files in submodule ${submodule.name}:`, subError)
             }
