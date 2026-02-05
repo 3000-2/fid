@@ -44,6 +44,10 @@ export class VirtualScrollManager {
     return this.lines.length
   }
 
+  getLines(): readonly string[] {
+    return this.lines
+  }
+
   getWindowedLines(): string[] {
     return this.lines.slice(this.windowStart, this.windowEnd)
   }

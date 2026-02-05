@@ -114,7 +114,7 @@ async function main() {
       return
     }
 
-    if (layout.isSettingsModalOpen() || layout.isCommandPaletteOpen() || layout.isHelpModalOpen()) {
+    if (layout.isSettingsModalOpen() || layout.isCommandPaletteOpen() || layout.isHelpModalOpen() || layout.isSearchActive()) {
       layout.handleKey(key)
       return
     }
@@ -126,6 +126,11 @@ async function main() {
 
     if (key.name === "/" && !key.ctrl && !key.meta) {
       layout.toggleCommandPalette()
+      return
+    }
+
+    if (key.name === "f" && key.ctrl && !key.meta) {
+      layout.openSearch()
       return
     }
 

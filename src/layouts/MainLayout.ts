@@ -13,6 +13,7 @@ import { CommandPalette } from "../components/CommandPalette"
 import { HelpModal } from "../components/HelpModal"
 import { CommitModal } from "../components/CommitModal"
 import { GitLogView } from "../components/GitLogView"
+import { SearchBar } from "../components/SearchBar"
 import { Toast } from "../components/Toast"
 import { type GitFile, type GitService, MAX_FILE_SIZE, getFileGroup } from "../services/git"
 import { type Theme, themes } from "../themes"
@@ -46,6 +47,7 @@ interface AppState {
   commitModalOpen: boolean
   gitLogOpen: boolean
   viewingCommit: CommitViewState | null
+  searchActive: boolean
 }
 
 export class MainLayout extends BoxRenderable {
@@ -62,6 +64,7 @@ export class MainLayout extends BoxRenderable {
   private helpModal: HelpModal | null = null
   private commitModal: CommitModal | null = null
   private gitLogView: GitLogView | null = null
+  private searchBar: SearchBar | null = null
   private toast: Toast
 
   private gitService: GitService
@@ -117,6 +120,7 @@ export class MainLayout extends BoxRenderable {
       commitModalOpen: false,
       gitLogOpen: false,
       viewingCommit: null,
+      searchActive: false,
     }
 
     this.container = new BoxRenderable(ctx, {
@@ -357,6 +361,16 @@ export class MainLayout extends BoxRenderable {
       return this.commitModal.handleKey(key)
     }
 
+    if (this.state.searchActive && this.searchBar) {
+      if (key.name === "escape") {
+        this.closeSearch()
+        return true
+      }
+      const handled = this.searchBar.handleKey(key)
+      this.updateSearchMatchInfo()
+      return handled
+    }
+
     if (this.state.gitLogOpen && this.gitLogView) {
       return this.gitLogView.handleKey(key)
     }
@@ -415,6 +429,66 @@ export class MainLayout extends BoxRenderable {
 
   isSidebarFocused(): boolean {
     return this.state.focusTarget === "sidebar"
+  }
+
+  openSearch(): void {
+    if (this.state.focusTarget !== "diff" || !this.diffViewer.visible) {
+      return
+    }
+
+    this.state.searchActive = true
+    this.searchBar = new SearchBar(this.renderCtx, {
+      theme: this.theme,
+      onSearch: (query) => this.handleSearchQuery(query),
+      onClose: () => this.closeSearch(),
+      onNext: () => this.handleSearchNext(),
+      onPrev: () => this.handleSearchPrev(),
+    })
+
+    this.mainContent.remove(this.welcomeText.id)
+    this.mainContent.remove(this.diffViewer.id)
+    this.mainContent.add(this.searchBar)
+    this.mainContent.add(this.diffViewer)
+  }
+
+  closeSearch(): void {
+    if (this.searchBar) {
+      this.mainContent.remove(this.searchBar.id)
+      this.mainContent.remove(this.diffViewer.id)
+      this.mainContent.add(this.welcomeText)
+      this.mainContent.add(this.diffViewer)
+      this.searchBar.destroy()
+      this.searchBar = null
+    }
+    this.diffViewer.clearSearch()
+    this.state.searchActive = false
+    this.updateStatusBar()
+  }
+
+  private handleSearchQuery(query: string): void {
+    this.diffViewer.setSearchQuery(query)
+    this.updateSearchMatchInfo()
+  }
+
+  private handleSearchNext(): void {
+    this.diffViewer.goToNextMatch()
+    this.updateSearchMatchInfo()
+  }
+
+  private handleSearchPrev(): void {
+    this.diffViewer.goToPrevMatch()
+    this.updateSearchMatchInfo()
+  }
+
+  private updateSearchMatchInfo(): void {
+    if (this.searchBar) {
+      const info = this.diffViewer.getMatchInfo()
+      this.searchBar.updateMatchInfo(info)
+    }
+  }
+
+  isSearchActive(): boolean {
+    return this.state.searchActive
   }
 
   toggleSettingsModal(): void {
@@ -1075,6 +1149,7 @@ export class MainLayout extends BoxRenderable {
     this.helpModal?.destroy()
     this.commitModal?.destroy()
     this.gitLogView?.destroy()
+    this.searchBar?.destroy()
     this.toast?.destroy()
     super.destroy()
   }

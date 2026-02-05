@@ -18,6 +18,17 @@ interface HunkInfo {
   patch: string
 }
 
+interface SearchMatch {
+  lineIndex: number
+  absoluteLine: number
+}
+
+interface SearchState {
+  query: string
+  matches: SearchMatch[]
+  currentIndex: number
+}
+
 interface DiffViewerOptions {
   diff?: string
   filePath?: string
@@ -78,12 +89,15 @@ export class DiffViewerRenderable extends BoxRenderable {
   private onHunkUnstage?: (hunkIndex: number, patch: string) => void
   private onHunkDiscard?: (hunkIndex: number, patch: string) => void
 
+  private searchState: SearchState | null = null
+
   private static readonly LINE_SCROLL = 1
   private static readonly HALF_PAGE_SCROLL = 10
   private static readonly VIRTUAL_SCROLL_WINDOW = 1000
   private static readonly VIRTUAL_SCROLL_THRESHOLD = 200
   private static readonly VIRTUAL_SCROLL_BUFFER = 300
   private static readonly DOUBLE_KEY_TIMEOUT_MS = 500
+  private static readonly SEARCH_SCROLL_OFFSET = 8
 
   constructor(ctx: RenderContext, options: DiffViewerOptions = {}) {
     const theme = options.theme || themes["one-dark"]
@@ -478,6 +492,100 @@ export class DiffViewerRenderable extends BoxRenderable {
     }
   }
 
+  setSearchQuery(query: string): void {
+    if (!query || query.length === 0) {
+      this.searchState = null
+      return
+    }
+
+    const lines = this.virtualScroll.getLines()
+    const matches: SearchMatch[] = []
+
+    try {
+      const regex = new RegExp(query, "gi")
+      for (let i = 0; i < lines.length; i++) {
+        if (regex.test(lines[i])) {
+          matches.push({
+            lineIndex: i,
+            absoluteLine: i,
+          })
+        }
+        regex.lastIndex = 0
+      }
+    } catch {
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].toLowerCase().includes(query.toLowerCase())) {
+          matches.push({
+            lineIndex: i,
+            absoluteLine: i,
+          })
+        }
+      }
+    }
+
+    this.searchState = {
+      query,
+      matches,
+      currentIndex: matches.length > 0 ? 0 : -1,
+    }
+
+    if (matches.length > 0) {
+      this.scrollToAbsolute(matches[0].absoluteLine)
+    }
+  }
+
+  clearSearch(): void {
+    this.searchState = null
+  }
+
+  goToNextMatch(): boolean {
+    if (!this.searchState || this.searchState.matches.length === 0) {
+      return false
+    }
+
+    const nextIndex = (this.searchState.currentIndex + 1) % this.searchState.matches.length
+    this.searchState = {
+      ...this.searchState,
+      currentIndex: nextIndex,
+    }
+
+    const match = this.searchState.matches[nextIndex]
+    this.scrollToAbsolute(match.absoluteLine)
+    return true
+  }
+
+  goToPrevMatch(): boolean {
+    if (!this.searchState || this.searchState.matches.length === 0) {
+      return false
+    }
+
+    const prevIndex = this.searchState.currentIndex <= 0
+      ? this.searchState.matches.length - 1
+      : this.searchState.currentIndex - 1
+    this.searchState = {
+      ...this.searchState,
+      currentIndex: prevIndex,
+    }
+
+    const match = this.searchState.matches[prevIndex]
+    this.scrollToAbsolute(match.absoluteLine)
+    return true
+  }
+
+  getMatchInfo(): { current: number; total: number } {
+    if (!this.searchState) {
+      return { current: 0, total: 0 }
+    }
+    return {
+      current: this.searchState.matches.length > 0 ? this.searchState.currentIndex + 1 : 0,
+      total: this.searchState.matches.length,
+    }
+  }
+
+  isSearchActive(): boolean {
+    return this.searchState !== null
+  }
+
   handleKey(key: ParsedKey): boolean {
     if (!this.scrollBox) return false
 
@@ -509,11 +617,17 @@ export class DiffViewerRenderable extends BoxRenderable {
     this.gPending = false
 
     if (key.name === "n" && key.shift && !key.ctrl && !key.meta) {
+      if (this.searchState && this.searchState.matches.length > 0) {
+        return this.goToPrevMatch()
+      }
       this.goToPrevHunk()
       return true
     }
 
     if (key.name === "n" && !key.shift && !key.ctrl && !key.meta) {
+      if (this.searchState && this.searchState.matches.length > 0) {
+        return this.goToNextMatch()
+      }
       this.goToNextHunk()
       return true
     }
@@ -561,7 +675,8 @@ export class DiffViewerRenderable extends BoxRenderable {
     }
 
     if (this.scrollBox) {
-      this.scrollBox.scrollTo(result.relativePosition)
+      const offset = this.searchState ? DiffViewerRenderable.SEARCH_SCROLL_OFFSET : 0
+      this.scrollBox.scrollTo(Math.max(0, result.relativePosition - offset))
     }
   }
 
