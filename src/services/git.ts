@@ -4,8 +4,18 @@ import { logger } from "../utils/logger"
 
 export const MAX_FILE_SIZE = 10 * 1024 * 1024
 export const MAX_COMMIT_MESSAGE_LENGTH = 10000
+const BINARY_CHECK_SIZE = 8192
 
 const VALID_STATUSES = new Set(["M", "A", "D", "R", "C", "U", "?"] as const)
+
+function isBinaryContent(buffer: ArrayBuffer): boolean {
+  const bytes = new Uint8Array(buffer)
+  const checkLength = Math.min(bytes.length, BINARY_CHECK_SIZE)
+  for (let i = 0; i < checkLength; i++) {
+    if (bytes[i] === 0) return true
+  }
+  return false
+}
 
 export type GitStatus = "M" | "A" | "D" | "R" | "C" | "U" | "?"
 
@@ -327,7 +337,12 @@ export function createGitService(cwd: string): GitService {
             return `diff --git a/${filePath} b/${filePath}\nnew file mode 100644\n--- /dev/null\n+++ b/${filePath}\n@@ -0,0 +1,1 @@\n+// File too large to display (${Math.round(file.size / 1024 / 1024)}MB)`
           }
 
-          const content = await file.text()
+          const buffer = await file.arrayBuffer()
+          if (isBinaryContent(buffer)) {
+            return `diff --git a/${filePath} b/${filePath}\nnew file mode 100644\nBinary files /dev/null and b/${filePath} differ`
+          }
+
+          const content = new TextDecoder().decode(buffer)
           const lines = content.split("\n")
           if (lines.length > 0 && lines[lines.length - 1] === "") {
             lines.pop()
@@ -349,7 +364,12 @@ export function createGitService(cwd: string): GitService {
           }
 
           try {
-            const originalContent = await $`git -C ${targetCwd} show HEAD:${relativePath}`.text()
+            const buffer = await $`git -C ${targetCwd} show HEAD:${relativePath}`.arrayBuffer()
+            if (isBinaryContent(buffer)) {
+              return `diff --git a/${filePath} b/${filePath}\ndeleted file mode 100644\nBinary files a/${filePath} and /dev/null differ`
+            }
+
+            const originalContent = new TextDecoder().decode(buffer)
             const lines = originalContent.split("\n")
             if (lines.length > 0 && lines[lines.length - 1] === "") {
               lines.pop()
