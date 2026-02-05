@@ -788,11 +788,12 @@ export class MainLayout extends BoxRenderable {
 
     if (gitFiles.length > 0) {
       await this.handleCommitFileSelect(gitFiles[0])
+    } else {
+      this.state.focusTarget = "sidebar"
+      this.sidebar.setDimmed(false)
+      this.sidebar.setFocusedPanel("files")
     }
 
-    this.state.focusTarget = "sidebar"
-    this.sidebar.setDimmed(false)
-    this.sidebar.setFocusedPanel("files")
     this.updateStatusBar()
     this.toast.show(`${commitFiles.length} files in commit`)
   }
