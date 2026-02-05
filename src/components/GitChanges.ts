@@ -16,7 +16,10 @@ interface GitChangesOptions {
   onStageToggle?: (file: GitFile) => void
   selectedPath?: string
   theme?: Theme
+  maxWidth?: number
 }
+
+const FILE_ITEM_PADDING = 4
 
 class FileItem extends BoxRenderable {
   private file: GitFile
@@ -34,11 +37,13 @@ class FileItem extends BoxRenderable {
     isSelected: boolean,
     isFocused: boolean,
     theme: Theme,
-    onSelect?: (file: GitFile) => void
+    onSelect?: (file: GitFile) => void,
+    maxWidth?: number
   ) {
     super(ctx, {
       id: `file-item-${index}`,
-      height: 1,
+      minHeight: 1,
+      maxHeight: 2,
       flexDirection: "row",
       paddingLeft: 1,
       paddingRight: 1,
@@ -60,12 +65,16 @@ class FileItem extends BoxRenderable {
       width: 2,
     })
 
+    const textMaxWidth = maxWidth && maxWidth > FILE_ITEM_PADDING
+      ? maxWidth - FILE_ITEM_PADDING
+      : undefined
     this.nameText = new TextRenderable(ctx, {
       id: `file-name-${index}`,
       content: fileName,
       fg: this.getTextColor(),
       flexGrow: 1,
-      wrapMode: "none",
+      maxWidth: textMaxWidth,
+      maxHeight: 2,
     })
 
     this.add(this.statusText)
@@ -125,6 +134,7 @@ export class GitChangesRenderable extends BoxRenderable {
   private theme: Theme
   private sectionElements: (TextRenderable | BoxRenderable)[] = []
   private isCommitMode = false
+  private itemMaxWidth?: number
 
   constructor(ctx: RenderContext, options: GitChangesOptions) {
     const theme = options.theme || themes["one-dark"]
@@ -139,6 +149,7 @@ export class GitChangesRenderable extends BoxRenderable {
     this.onFileSelect = options.onFileSelect
     this.onStageToggle = options.onStageToggle
     this.theme = theme
+    this.itemMaxWidth = options.maxWidth
 
     const staged = options.files.filter(f => f.staged)
     const unstaged = options.files.filter(f => !f.staged)
@@ -219,7 +230,8 @@ export class GitChangesRenderable extends BoxRenderable {
           isSelected,
           isFocused,
           this.theme,
-          (f) => this.handleFileSelect(f, idx)
+          (f) => this.handleFileSelect(f, idx),
+          this.itemMaxWidth
         )
         this.fileItems.push(item)
         this.contentBox.add(item)
@@ -458,6 +470,11 @@ export class GitChangesRenderable extends BoxRenderable {
     if (this.fileItems[index]) {
       this.fileItems[index].setFocused(true)
     }
+  }
+
+  setMaxWidth(width: number): void {
+    this.itemMaxWidth = width
+    this.renderFiles()
   }
 
   setCommitMode(mode: boolean): void {

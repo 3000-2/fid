@@ -30,6 +30,7 @@ type FocusPanel = "files" | null
 export class SidebarRenderable extends BoxRenderable {
   private static readonly COMMIT_MSG_PADDING = 4
   private static readonly DIVIDER_PADDING = 2
+  private static readonly CONTENT_PADDING = 2
 
   private renderCtx: RenderContext
   private gitChanges: GitChangesRenderable
@@ -64,6 +65,7 @@ export class SidebarRenderable extends BoxRenderable {
       onFileSelect: options.onFileSelect,
       onStageToggle: options.onStageToggle,
       theme: initialTheme,
+      maxWidth: options.width - SidebarRenderable.CONTENT_PADDING,
     })
     this.gitChanges.flexGrow = 1
     this.add(this.gitChanges)
@@ -224,6 +226,7 @@ export class SidebarRenderable extends BoxRenderable {
   setWidth(width: number): void {
     this.sidebarWidth = width
     this.width = width
+    this.gitChanges.setMaxWidth(width - SidebarRenderable.CONTENT_PADDING)
   }
 
   getWidth(): number {
