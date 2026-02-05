@@ -7,7 +7,7 @@ export const MAX_COMMIT_MESSAGE_LENGTH = 10000
 
 const VALID_STATUSES = new Set(["M", "A", "D", "R", "C", "U", "?"] as const)
 
-type GitStatus = "M" | "A" | "D" | "R" | "C" | "U" | "?"
+export type GitStatus = "M" | "A" | "D" | "R" | "C" | "U" | "?"
 
 function parseGitStatus(statusChar: string): GitStatus | null {
   const char = statusChar.charAt(0)
@@ -30,7 +30,7 @@ export interface Submodule {
 
 export interface GitService {
   getChangedFiles(): Promise<GitFile[]>
-  getDiff(filePath: string, staged?: boolean, isUntracked?: boolean, submodulePath?: string, fullContext?: boolean): Promise<string>
+  getDiff(filePath: string, staged?: boolean, status?: GitStatus, submodulePath?: string, fullContext?: boolean): Promise<string>
   getCurrentBranch(): Promise<string>
   getWorkingDirectory(): string
   isGitRepo(): Promise<boolean>
@@ -303,7 +303,7 @@ export function createGitService(cwd: string): GitService {
       return files.sort((a, b) => a.path.localeCompare(b.path))
     },
 
-    async getDiff(filePath: string, staged = false, isUntracked = false, submodulePath?: string, fullContext = false): Promise<string> {
+    async getDiff(filePath: string, staged = false, status?: GitStatus, submodulePath?: string, fullContext = false): Promise<string> {
       const targetCwd = submodulePath ? safeResolvePath(cwd, submodulePath) : cwd
       if (!targetCwd) {
         logger.error(`Invalid submodule path: ${submodulePath}`)
@@ -313,7 +313,7 @@ export function createGitService(cwd: string): GitService {
       const relativePath = submodulePath ? filePath.replace(`${submodulePath}/`, "") : filePath
 
       try {
-        if (isUntracked) {
+        if (status === "?") {
           const fullPath = safeResolvePath(targetCwd, relativePath)
           if (!fullPath) {
             logger.error(`Path validation failed for: ${filePath}`)
@@ -337,6 +337,38 @@ export function createGitService(cwd: string): GitService {
           const header = `diff --git a/${filePath} b/${filePath}\nnew file mode 100644\n--- /dev/null\n+++ b/${filePath}\n@@ -0,0 +1,${lineCount} @@`
           const body = lines.map(line => `+${line}`).join("\n")
           return `${header}\n${body}`
+        }
+
+        if (status === "D") {
+          const diffResult = staged
+            ? await $`git -C ${targetCwd} diff --cached -- ${relativePath}`.text()
+            : await $`git -C ${targetCwd} diff -- ${relativePath}`.text()
+
+          if (diffResult.trim()) {
+            return diffResult
+          }
+
+          try {
+            const originalContent = await $`git -C ${targetCwd} show HEAD:${relativePath}`.text()
+            const lines = originalContent.split("\n")
+            if (lines.length > 0 && lines[lines.length - 1] === "") {
+              lines.pop()
+            }
+            const lineCount = lines.length
+
+            const header = `diff --git a/${filePath} b/${filePath}\ndeleted file mode 100644\n--- a/${filePath}\n+++ /dev/null\n@@ -1,${lineCount} +0,0 @@`
+            const body = lines.map(line => `-${line}`).join("\n")
+            return `${header}\n${body}`
+          } catch {
+            return ""
+          }
+        }
+
+        if (status === "A" && staged) {
+          if (fullContext) {
+            return await $`git -C ${targetCwd} diff --cached -U99999 -- ${relativePath}`.text()
+          }
+          return await $`git -C ${targetCwd} diff --cached -- ${relativePath}`.text()
         }
 
         if (staged) {
