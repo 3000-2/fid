@@ -9,6 +9,7 @@ A terminal UI for viewing git diffs with style.
 ## Features
 
 - **Diff Viewer** - View git diffs with syntax highlighting
+- **Git Log** - View commit history with ASCII graph visualization
 - **Staged/Unstaged Sections** - Easily distinguish between staged and unstaged changes
 - **Stage/Unstage** - Toggle file staging with `s` key
 - **Hunk Operations** - Stage, unstage, or discard individual hunks
@@ -92,6 +93,15 @@ bun run start /path/to/git/repo
 | `o` | Toggle full file view |
 | `L` | Load more lines (for large files) |
 
+### Git Log View
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Navigate commits |
+| `g` / `G` | First / Last commit |
+| `d` / `u` | Half page down / up |
+| `Enter` | View commit files |
+| `Esc` | Close log / Back to log |
+
 ## Command Palette
 
 Press `/` to open the command palette. You can:
@@ -100,6 +110,7 @@ Press `/` to open the command palette. You can:
 - **Browse all files** - Search any project file (enable in Settings)
 - **Scroll results** - Use arrow keys to navigate through all matches
 - **Commit** - Commit staged changes with a message
+- **Log** - View commit history with graph
 - **Stage All** - Stage all changed files
 - **Unstage All** - Unstage all staged files
 - **Settings** - Open theme and preferences

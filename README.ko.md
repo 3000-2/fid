@@ -9,6 +9,7 @@
 ## 기능
 
 - **Diff 뷰어** - 구문 강조가 적용된 git diff 보기
+- **Git Log** - ASCII 그래프와 함께 커밋 히스토리 보기
 - **Staged/Unstaged 섹션** - staged와 unstaged 변경사항 구분
 - **Stage/Unstage** - `s` 키로 파일 스테이징 토글
 - **Hunk 단위 조작** - 개별 hunk를 stage, unstage, discard
@@ -92,6 +93,15 @@ bun run start /path/to/git/repo
 | `o` | 전체 파일 보기 토글 |
 | `L` | 더 많은 라인 로드 (큰 파일용) |
 
+### Git Log 뷰
+| 키 | 동작 |
+|-----|--------|
+| `j` / `k` | 커밋 탐색 |
+| `g` / `G` | 처음 / 마지막 커밋 |
+| `d` / `u` | 반 페이지 아래 / 위 |
+| `Enter` | 커밋 파일 보기 |
+| `Esc` | 로그 닫기 / 로그로 돌아가기 |
+
 ## 명령 팔레트
 
 `/` 키를 눌러 명령 팔레트를 엽니다:
@@ -100,6 +110,7 @@ bun run start /path/to/git/repo
 - **모든 파일 탐색** - 프로젝트의 모든 파일 검색 (설정에서 활성화)
 - **스크롤 지원** - 방향키로 모든 결과 탐색
 - **Commit** - staged 변경사항 커밋
+- **Log** - 커밋 히스토리 그래프 보기
 - **Stage All** - 모든 변경 파일 stage
 - **Unstage All** - 모든 staged 파일 unstage
 - **Settings** - 테마 및 환경설정 열기
