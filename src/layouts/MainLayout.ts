@@ -12,7 +12,7 @@ import { SettingsModal } from "../components/SettingsModal"
 import { CommandPalette } from "../components/CommandPalette"
 import { HelpModal } from "../components/HelpModal"
 import { CommitModal } from "../components/CommitModal"
-import { GitLogView } from "../components/GitLogView"
+import { GitLogView, type LoadMoreResult } from "../components/GitLogView"
 import { SearchBar } from "../components/SearchBar"
 import { Toast } from "../components/Toast"
 import { type GitFile, type GitService, MAX_FILE_SIZE, getFileGroup } from "../services/git"
@@ -78,6 +78,8 @@ export class MainLayout extends BoxRenderable {
   private isCommitting: boolean = false
   private isStagingAll: boolean = false
   private isLoadingLog: boolean = false
+  private logCommitsLoaded: number = 0
+  private logSessionId: number = 0
 
   constructor(ctx: RenderContext, options: MainLayoutOptions) {
     const theme = themes[options.config.theme]
@@ -373,6 +375,11 @@ export class MainLayout extends BoxRenderable {
 
     if (this.state.gitLogOpen && this.gitLogView) {
       return this.gitLogView.handleKey(key)
+    }
+
+    if (this.state.viewingCommit && key.name === "escape") {
+      this.exitCommitView()
+      return true
     }
 
     if (this.state.focusTarget === "sidebar") {
@@ -798,10 +805,13 @@ export class MainLayout extends BoxRenderable {
     this.isLoadingLog = true
 
     this.state.gitLogOpen = true
+    this.logCommitsLoaded = 0
+    this.logSessionId++
     this.toast.show("Loading commits...")
 
     try {
       const commits = await this.gitService.getLog(MainLayout.MAX_LOG_COMMITS)
+      this.logCommitsLoaded = commits.length
 
       if (commits.length === 0) {
         this.toast.show("No commits found")
@@ -809,11 +819,15 @@ export class MainLayout extends BoxRenderable {
         return
       }
 
+      const hasMore = commits.length >= MainLayout.MAX_LOG_COMMITS
+
       this.gitLogView = new GitLogView(this.renderCtx, {
         theme: this.theme,
         commits,
         onSelectCommit: (hash) => this.handleCommitSelect(hash),
         onClose: () => this.closeGitLog(),
+        onLoadMore: () => this.loadMoreCommits(),
+        hasMore,
       })
       this.add(this.gitLogView)
       this.toast.show(`Loaded ${commits.length} commits`)
@@ -826,12 +840,31 @@ export class MainLayout extends BoxRenderable {
     }
   }
 
+  private async loadMoreCommits(): Promise<LoadMoreResult> {
+    const sessionId = this.logSessionId
+    try {
+      const newCommits = await this.gitService.getLog(MainLayout.MAX_LOG_COMMITS, this.logCommitsLoaded)
+      if (sessionId !== this.logSessionId) {
+        return { commits: [], hasMore: false }
+      }
+      this.logCommitsLoaded += newCommits.length
+      return {
+        commits: newCommits,
+        hasMore: newCommits.length >= MainLayout.MAX_LOG_COMMITS,
+      }
+    } catch (error) {
+      logger.error("Failed to load more commits:", error)
+      return { commits: [], hasMore: false }
+    }
+  }
+
   private closeGitLog(): void {
     if (this.gitLogView) {
       this.remove(this.gitLogView.id)
       this.gitLogView = null
     }
     this.state.gitLogOpen = false
+    this.logCommitsLoaded = 0
   }
 
   private async handleCommitSelect(hash: string): Promise<void> {

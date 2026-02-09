@@ -204,6 +204,37 @@ export function formatRefTag(ref: string): {
   return { text, isHead, isTag, isRemote }
 }
 
+export function parseGitLogFlatOutput(output: string): GitCommit[] {
+  const commits: GitCommit[] = []
+  const lines = output.split("\n")
+
+  for (const line of lines) {
+    if (!line) continue
+
+    const parts = line.split("|")
+    if (parts.length < 4) continue
+
+    const hash = parts[0].trim()
+    const refsStr = parts[1].trim()
+    const message = parts[2].trim()
+    const author = parts[3].trim()
+    const relativeDate = parts.slice(4).join("|").trim()
+
+    if (!hash || hash.length < 4) continue
+
+    commits.push({
+      hash,
+      refs: parseRefs(refsStr),
+      message,
+      author,
+      relativeDate,
+      graphChars: "",
+    })
+  }
+
+  return commits
+}
+
 export function truncateMessage(message: string, maxLength: number): string {
   if (maxLength <= 0) return ""
   if (message.length <= maxLength) {

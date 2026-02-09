@@ -1,7 +1,7 @@
 import { $ } from "bun"
 import { safeResolvePath } from "../utils/path"
 import { logger } from "../utils/logger"
-import { parseGitLogOutput } from "../utils/gitGraph"
+import { parseGitLogOutput, parseGitLogFlatOutput } from "../utils/gitGraph"
 
 export const MAX_FILE_SIZE = 10 * 1024 * 1024
 export const MAX_COMMIT_MESSAGE_LENGTH = 10000
@@ -74,7 +74,7 @@ export interface GitService {
   stageHunk(filePath: string, hunkPatch: string): Promise<boolean>
   unstageHunk(filePath: string, hunkPatch: string): Promise<boolean>
   discardHunk(filePath: string, hunkPatch: string): Promise<boolean>
-  getLog(limit?: number): Promise<GitCommitInfo[]>
+  getLog(limit?: number, skip?: number): Promise<GitCommitInfo[]>
   getCommitInfo(hash: string): Promise<GitCommitInfo | null>
   getCommitDiff(hash: string): Promise<string>
   getCommitFiles(hash: string): Promise<CommitFile[]>
@@ -645,11 +645,16 @@ export function createGitService(cwd: string): GitService {
       }
     },
 
-    async getLog(limit = 100): Promise<GitCommitInfo[]> {
+    async getLog(limit = 100, skip = 0): Promise<GitCommitInfo[]> {
       const safeLimit = Math.max(MIN_LOG_LIMIT, Math.min(MAX_LOG_LIMIT, Math.floor(limit)))
+      const safeSkip = Math.max(0, Math.floor(skip))
       try {
-        const result = await $`git -C ${cwd} log --graph --format="%h|%D|%s|%an|%ar" --all -n ${safeLimit}`.text()
-        return parseGitLogOutput(result)
+        if (safeSkip === 0) {
+          const result = await $`git -C ${cwd} log --graph --format="%h|%D|%s|%an|%ar" --all -n ${safeLimit}`.text()
+          return parseGitLogOutput(result)
+        }
+        const result = await $`git -C ${cwd} log --format="%h|%D|%s|%an|%ar" --all -n ${safeLimit} --skip ${safeSkip}`.text()
+        return parseGitLogFlatOutput(result)
       } catch (error) {
         if (!isExpectedGitError(error)) {
           logger.error("Error getting git log:", error)
