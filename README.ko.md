@@ -9,7 +9,8 @@
 ## 기능
 
 - **Diff 뷰어** - 구문 강조가 적용된 git diff 보기
-- **Git Log** - ASCII 그래프와 함께 커밋 히스토리 보기
+- **Diff 검색** - `Ctrl+F`로 diff 내 텍스트 검색
+- **Git Log** - ASCII 그래프와 함께 커밋 히스토리 보기, 자동 페이지네이션
 - **Staged/Unstaged 섹션** - staged와 unstaged 변경사항 구분
 - **Stage/Unstage** - `s` 키로 파일 스테이징 토글
 - **Hunk 단위 조작** - 개별 hunk를 stage, unstage, discard
@@ -92,6 +93,7 @@ bun run start /path/to/git/repo
 | `x` | 현재 hunk 삭제 (discard) |
 | `o` | 전체 파일 보기 토글 |
 | `L` | 더 많은 라인 로드 (큰 파일용) |
+| `Ctrl+F` | diff 내 검색 |
 
 ### Git Log 뷰
 | 키 | 동작 |
@@ -100,7 +102,9 @@ bun run start /path/to/git/repo
 | `g` / `G` | 처음 / 마지막 커밋 |
 | `d` / `u` | 반 페이지 아래 / 위 |
 | `Enter` | 커밋 파일 보기 |
-| `Esc` | 로그 닫기 / 로그로 돌아가기 |
+| `Esc` | 로그 닫기 / 커밋 뷰 나가기 |
+
+끝까지 스크롤하면 커밋이 자동으로 추가 로드됩니다.
 
 ## 명령 팔레트
 
