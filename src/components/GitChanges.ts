@@ -153,7 +153,10 @@ export class GitChangesRenderable extends BoxRenderable {
 
     const staged = options.files.filter(f => f.staged)
     const unstaged = options.files.filter(f => !f.staged)
-    this.files = [...staged, ...unstaged]
+    this.files = [
+      ...this.getDisplayOrderedFiles(staged),
+      ...this.getDisplayOrderedFiles(unstaged),
+    ]
 
     if (options.selectedPath) {
       this.selectedIndex = this.files.findIndex(f => f.path === options.selectedPath)
@@ -187,6 +190,26 @@ export class GitChangesRenderable extends BoxRenderable {
       }
     }
     return groups
+  }
+
+  private getDisplayOrderedFiles(files: GitFile[]): GitFile[] {
+    const groups = this.groupFilesByGroup(files)
+    const sortedGroups = Array.from(groups.keys()).sort((a, b) => {
+      if (a === "") return 1
+      if (b === "") return -1
+      return a.localeCompare(b)
+    })
+
+    const ordered: GitFile[] = []
+    for (const groupName of sortedGroups) {
+      const groupFiles = groups.get(groupName)
+      if (groupFiles) {
+        for (const file of groupFiles) {
+          ordered.push(file)
+        }
+      }
+    }
+    return ordered
   }
 
   private renderGroupedFiles(
@@ -426,7 +449,10 @@ export class GitChangesRenderable extends BoxRenderable {
   updateFiles(files: GitFile[]): void {
     const staged = files.filter(f => f.staged)
     const unstaged = files.filter(f => !f.staged)
-    this.files = [...staged, ...unstaged]
+    this.files = [
+      ...this.getDisplayOrderedFiles(staged),
+      ...this.getDisplayOrderedFiles(unstaged),
+    ]
 
     if (this.selectedIndex >= this.files.length) {
       this.selectedIndex = -1
