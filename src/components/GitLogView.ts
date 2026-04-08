@@ -53,7 +53,7 @@ export class GitLogView extends BoxRenderable {
   private modalWidth: number
   private isLoadingMore: boolean = false
   private loadingId: number = 0
-  private isDestroyed: boolean = false
+  private destroyed: boolean = false
 
   private static readonly MAX_VISIBLE_ROWS = 20
   private static readonly MIN_MODAL_WIDTH = 60
@@ -433,7 +433,7 @@ export class GitLogView extends BoxRenderable {
   }
 
   private async triggerLoadMore(): Promise<void> {
-    if (this.isDestroyed || this.isLoadingMore || !this.hasMore || !this.onLoadMore) return
+    if (this.destroyed || this.isLoadingMore || !this.hasMore || !this.onLoadMore) return
     this.isLoadingMore = true
     this.loadingId++
     const currentLoadingId = this.loadingId
@@ -441,14 +441,14 @@ export class GitLogView extends BoxRenderable {
 
     try {
       const result = await this.onLoadMore()
-      if (this.isDestroyed || currentLoadingId !== this.loadingId) {
+      if (this.destroyed || currentLoadingId !== this.loadingId) {
         this.isLoadingMore = false
         return
       }
       this.appendCommits(result.commits, result.hasMore)
     } catch {
       this.isLoadingMore = false
-      if (!this.isDestroyed && currentLoadingId === this.loadingId) {
+      if (!this.destroyed && currentLoadingId === this.loadingId) {
         this.hasMore = false
         this.updateStatus()
       }
@@ -539,7 +539,7 @@ export class GitLogView extends BoxRenderable {
   }
 
   destroy(): void {
-    this.isDestroyed = true
+    this.destroyed = true
     this.clearResults()
     this.scrollBox?.destroy()
     this.resultsBox?.destroy()

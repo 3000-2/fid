@@ -7,14 +7,14 @@ import {
   RGBA,
 } from "@opentui/core"
 import { ScrollBoxRenderable } from "@opentui/core"
-import type { GitFile } from "../services/git"
+import { findMatchingGitFile, type GitFile } from "../services/git"
 import { type Theme, themes, statusColors } from "../themes"
 
 interface GitChangesOptions {
   files: GitFile[]
   onFileSelect?: (file: GitFile) => void
   onStageToggle?: (file: GitFile) => void
-  selectedPath?: string
+  selectedFile?: GitFile
   theme?: Theme
   maxWidth?: number
 }
@@ -135,6 +135,8 @@ export class GitChangesRenderable extends BoxRenderable {
   private sectionElements: (TextRenderable | BoxRenderable)[] = []
   private isCommitMode = false
   private itemMaxWidth?: number
+  private selectedFile: GitFile | null = null
+  private focusedFile: GitFile | null = null
 
   constructor(ctx: RenderContext, options: GitChangesOptions) {
     const theme = options.theme || themes["one-dark"]
@@ -158,8 +160,11 @@ export class GitChangesRenderable extends BoxRenderable {
       ...this.getDisplayOrderedFiles(unstaged),
     ]
 
-    if (options.selectedPath) {
-      this.selectedIndex = this.files.findIndex(f => f.path === options.selectedPath)
+    if (options.selectedFile) {
+      this.selectedFile = findMatchingGitFile(this.files, options.selectedFile) || null
+      this.selectedIndex = this.selectedFile
+        ? this.files.findIndex((file) => file === this.selectedFile)
+        : -1
     }
 
     this.scrollBox = new ScrollBoxRenderable(ctx, {
@@ -339,6 +344,8 @@ export class GitChangesRenderable extends BoxRenderable {
     const prevSelected = this.selectedIndex
     this.selectedIndex = index
     this.focusedIndex = index
+    this.selectedFile = file
+    this.focusedFile = file
 
     if (prevSelected >= 0 && this.fileItems[prevSelected]) {
       this.fileItems[prevSelected].setSelected(false)
@@ -359,6 +366,7 @@ export class GitChangesRenderable extends BoxRenderable {
 
     if (focused && this.focusedIndex < 0 && this.files.length > 0) {
       this.focusedIndex = this.selectedIndex >= 0 ? this.selectedIndex : 0
+      this.focusedFile = this.files[this.focusedIndex] || null
       this.fileItems[this.focusedIndex]?.setFocused(true)
     }
 
@@ -418,6 +426,7 @@ export class GitChangesRenderable extends BoxRenderable {
         this.fileItems[prevFocused].setFocused(false)
       }
       if (this.focusedIndex >= 0 && this.fileItems[this.focusedIndex]) {
+        this.focusedFile = this.files[this.focusedIndex] || null
         this.fileItems[this.focusedIndex].setFocused(true)
       }
     }
@@ -454,22 +463,38 @@ export class GitChangesRenderable extends BoxRenderable {
       ...this.getDisplayOrderedFiles(unstaged),
     ]
 
-    if (this.selectedIndex >= this.files.length) {
-      this.selectedIndex = -1
-    }
-    if (this.focusedIndex >= this.files.length) {
-      this.focusedIndex = this.files.length > 0 ? 0 : -1
+    this.selectedFile = this.selectedFile
+      ? findMatchingGitFile(this.files, this.selectedFile) || null
+      : null
+    this.focusedFile = this.focusedFile
+      ? findMatchingGitFile(this.files, this.focusedFile) || null
+      : null
+
+    this.selectedIndex = this.selectedFile
+      ? this.files.findIndex((file) => file === this.selectedFile)
+      : -1
+
+    if (this.focusedFile) {
+      this.focusedIndex = this.files.findIndex((file) => file === this.focusedFile)
+    } else if (this.isFocused && this.files.length > 0) {
+      this.focusedIndex = this.selectedIndex >= 0 ? this.selectedIndex : 0
+      this.focusedFile = this.files[this.focusedIndex] || null
+    } else {
+      this.focusedIndex = -1
     }
 
     this.renderFiles()
   }
 
-  setSelectedPath(path: string | undefined): void {
-    const index = path ? this.files.findIndex(f => f.path === path) : -1
+  setSelectedFile(file: GitFile | undefined): void {
+    const matchedFile = file ? findMatchingGitFile(this.files, file) : undefined
+    const index = matchedFile ? this.files.findIndex((currentFile) => currentFile === matchedFile) : -1
     const prevSelected = this.selectedIndex
     const prevFocused = this.focusedIndex
     this.selectedIndex = index
     this.focusedIndex = index
+    this.selectedFile = matchedFile || null
+    this.focusedFile = matchedFile || null
 
     if (prevSelected >= 0 && this.fileItems[prevSelected]) {
       this.fileItems[prevSelected].setSelected(false)
@@ -483,8 +508,9 @@ export class GitChangesRenderable extends BoxRenderable {
     }
   }
 
-  setFocusedPath(path: string): void {
-    const index = this.files.findIndex(f => f.path === path)
+  setFocusedFile(file: GitFile): void {
+    const matchedFile = findMatchingGitFile(this.files, file)
+    const index = matchedFile ? this.files.findIndex((currentFile) => currentFile === matchedFile) : -1
     if (index < 0) return
 
     const prevFocused = this.focusedIndex
@@ -493,6 +519,7 @@ export class GitChangesRenderable extends BoxRenderable {
     }
 
     this.focusedIndex = index
+    this.focusedFile = matchedFile || null
     if (this.fileItems[index]) {
       this.fileItems[index].setFocused(true)
     }

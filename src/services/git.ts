@@ -38,6 +38,37 @@ export interface GitFile {
   submodulePath?: string
 }
 
+export function isSameGitFileEntry(
+  a: Pick<GitFile, "path" | "staged" | "submodulePath">,
+  b: Pick<GitFile, "path" | "staged" | "submodulePath">
+): boolean {
+  return (
+    a.path === b.path &&
+    a.staged === b.staged &&
+    (a.submodulePath || "") === (b.submodulePath || "")
+  )
+}
+
+export function hasSameGitFilePath(
+  a: Pick<GitFile, "path" | "submodulePath">,
+  b: Pick<GitFile, "path" | "submodulePath">
+): boolean {
+  return (
+    a.path === b.path &&
+    (a.submodulePath || "") === (b.submodulePath || "")
+  )
+}
+
+export function findMatchingGitFile(
+  files: GitFile[],
+  target: Pick<GitFile, "path" | "staged" | "submodulePath">
+): GitFile | undefined {
+  return (
+    files.find((file) => isSameGitFileEntry(file, target)) ||
+    files.find((file) => hasSameGitFilePath(file, target))
+  )
+}
+
 export interface Submodule {
   name: string
   path: string

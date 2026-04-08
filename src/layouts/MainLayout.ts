@@ -15,7 +15,13 @@ import { CommitModal } from "../components/CommitModal"
 import { GitLogView, type LoadMoreResult } from "../components/GitLogView"
 import { SearchBar } from "../components/SearchBar"
 import { Toast } from "../components/Toast"
-import { type GitFile, type GitService, MAX_FILE_SIZE, getFileGroup } from "../services/git"
+import {
+  findMatchingGitFile,
+  type GitFile,
+  type GitService,
+  MAX_FILE_SIZE,
+  getFileGroup,
+} from "../services/git"
 import { type Theme, themes } from "../themes"
 import { type Config, saveConfig, trackCommandUsage, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } from "../services/config"
 import { copyToClipboard } from "../utils/clipboard"
@@ -254,19 +260,19 @@ export class MainLayout extends BoxRenderable {
     indexInSection: number,
     newStaged: GitFile[],
     newUnstaged: GitFile[]
-  ): string | undefined {
+  ): GitFile | undefined {
     const sectionFiles = wasStaged ? newStaged : newUnstaged
 
     if (sectionFiles.length > 0) {
       const nextIndex = Math.min(indexInSection, sectionFiles.length - 1)
-      return sectionFiles[nextIndex].path
+      return sectionFiles[nextIndex]
     }
 
     if (wasStaged && newUnstaged.length > 0) {
-      return newUnstaged[0].path
+      return newUnstaged[0]
     }
     if (!wasStaged && newStaged.length > 0) {
-      return newStaged[newStaged.length - 1].path
+      return newStaged[newStaged.length - 1]
     }
 
     return undefined
@@ -290,10 +296,10 @@ export class MainLayout extends BoxRenderable {
 
         const newStaged = this.state.files.filter(f => f.staged)
         const newUnstaged = this.state.files.filter(f => !f.staged)
-        const focusPath = this.calculateNextFocusPath(wasStaged, indexInSection, newStaged, newUnstaged)
+        const focusFile = this.calculateNextFocusPath(wasStaged, indexInSection, newStaged, newUnstaged)
 
-        if (focusPath) {
-          this.sidebar.setFocusedPath(focusPath)
+        if (focusFile) {
+          this.sidebar.setFocusedFile(focusFile)
         }
 
         const action = wasStaged ? "Unstaged" : "Staged"
@@ -313,7 +319,7 @@ export class MainLayout extends BoxRenderable {
     }
 
     this.state.selectedFile = file
-    this.sidebar.setSelectedPath(file.path)
+    this.sidebar.setSelectedFile(file)
     this.welcomeText.visible = false
     this.diffViewer.visible = true
 
@@ -570,15 +576,25 @@ export class MainLayout extends BoxRenderable {
         this.gitService.getCurrentBranch(),
       ])
 
+      const previousSelectedFile = this.state.selectedFile
       this.state.files = files
       this.state.currentBranch = branch
+      this.state.selectedFile = previousSelectedFile
+        ? findMatchingGitFile(files, previousSelectedFile)
+        : undefined
       this.sidebar.updateFiles(files)
 
-      if (files.length > 0 && !this.state.selectedFile) {
+      if (this.state.selectedFile) {
+        this.sidebar.setSelectedFile(this.state.selectedFile)
+      }
+
+      if (files.length > 0 && !previousSelectedFile && !this.state.selectedFile) {
         const staged = files.filter(f => f.staged)
         const unstaged = files.filter(f => !f.staged)
         const sortedFiles = [...staged, ...unstaged]
         this.handleFileSelect(sortedFiles[0])
+      } else if (!this.state.selectedFile) {
+        this.sidebar.setSelectedFile(undefined)
       }
 
       this.updateStatusBar()
@@ -919,7 +935,7 @@ export class MainLayout extends BoxRenderable {
 
       if (diff) {
         this.state.selectedFile = file
-        this.sidebar.setSelectedPath(file.path)
+        this.sidebar.setSelectedFile(file)
         this.welcomeText.visible = false
         this.diffViewer.visible = true
         this.diffViewer.showDiff(diff, file.path)
@@ -1121,10 +1137,10 @@ export class MainLayout extends BoxRenderable {
   }
 
   private async reloadCurrentFile(): Promise<void> {
+    const previousSelectedFile = this.state.selectedFile
     await this.refreshFiles()
-    const file = this.state.selectedFile
-    if (file) {
-      const updatedFile = this.state.files.find(f => f.path === file.path)
+    if (previousSelectedFile) {
+      const updatedFile = findMatchingGitFile(this.state.files, previousSelectedFile)
       if (updatedFile) {
         await this.handleFileSelect(updatedFile)
       } else {
