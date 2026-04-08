@@ -308,24 +308,9 @@ export class DiffViewerRenderable extends BoxRenderable {
   private handleMouseClick(_event: { x: number; y: number }): void {}
 
   private getVisibleDiff(): string {
-    const state = this.virtualScroll.getState()
-
-    if (state.totalLines <= DiffViewerRenderable.VIRTUAL_SCROLL_WINDOW) {
-      return this.virtualScroll.getWindowedContent()
-    }
-
-    let content = this.virtualScroll.getWindowedContent()
-    const windowInfo = `Lines ${state.windowStart + 1}-${state.windowEnd} of ${state.totalLines}`
-
-    if (!this.virtualScroll.isAtStart()) {
-      content = `    ─── ${windowInfo} (scroll up for more) ───\n\n` + content
-    }
-
-    if (!this.virtualScroll.isAtEnd()) {
-      content += `\n\n    ─── ${windowInfo} (scroll down for more) ───`
-    }
-
-    return content
+    // DiffRenderable expects a complete, valid patch. Rendering a sliced patch
+    // breaks hunk counts and shows the parser error view instead of the diff.
+    return this.virtualScroll.getLines().join("\n")
   }
 
   private renderDiff(diff: string): void {
@@ -371,19 +356,8 @@ export class DiffViewerRenderable extends BoxRenderable {
   }
 
   private checkVirtualScroll(): void {
-    if (!this.scrollBox) return
-
-    const scrollTop = this.scrollBox.scrollTop
-    const absolutePosition = this.virtualScroll.toAbsolutePosition(scrollTop)
-
-    if (this.virtualScroll.handleScroll(absolutePosition)) {
-      const visibleDiff = this.getVisibleDiff()
-      this.parseHunkPositions(visibleDiff)
-      this.renderDiff(visibleDiff)
-
-      const newRelativePosition = this.virtualScroll.toRelativePosition(absolutePosition)
-      this.scrollBox.scrollTo(Math.max(0, newRelativePosition))
-    }
+    // Intentionally disabled. DiffRenderable needs the full patch, not a
+    // windowed slice, so scrolling is handled by ScrollBox directly.
   }
 
   async toggleFullFileView(): Promise<boolean> {
@@ -431,7 +405,7 @@ export class DiffViewerRenderable extends BoxRenderable {
     const state = this.virtualScroll.getState()
     const scrollTop = this.scrollBox?.scrollTop ?? 0
     return {
-      current: this.virtualScroll.toAbsolutePosition(scrollTop),
+      current: scrollTop,
       total: state.totalLines,
     }
   }
@@ -666,17 +640,9 @@ export class DiffViewerRenderable extends BoxRenderable {
   }
 
   private scrollToAbsolute(absolutePosition: number): void {
-    const result = this.virtualScroll.scrollToAbsolute(absolutePosition)
-
-    if (result.windowChanged) {
-      const visibleDiff = this.getVisibleDiff()
-      this.parseHunkPositions(visibleDiff)
-      this.renderDiff(visibleDiff)
-    }
-
     if (this.scrollBox) {
       const offset = this.searchState ? DiffViewerRenderable.SEARCH_SCROLL_OFFSET : 0
-      this.scrollBox.scrollTo(Math.max(0, result.relativePosition - offset))
+      this.scrollBox.scrollTo(Math.max(0, absolutePosition - offset))
     }
   }
 
